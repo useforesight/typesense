@@ -1,0 +1,108 @@
+name: Publish GHCR image
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Extra image tag to publish"
+        required: false
+        default: "v31-index-snapshot"
+  push:
+    branches:
+      - v31
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/useforesight/typesense
+
+jobs:
+  publish:
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y g++-10 make git zlib1g-dev m4 lld
+
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 30
+
+          sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30
+          sudo update-alternatives --set cc /usr/bin/gcc
+
+          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
+          sudo update-alternatives --set c++ /usr/bin/g++
+
+      - name: Set up Bazel
+        uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ vars.BAZEL_CACHE_KEY != '' && vars.BAZEL_CACHE_KEY || github.workflow }}
+          repository-cache: true
+          external-cache: true
+
+      - name: Build Typesense server
+        run: bazel build //:typesense-server
+
+      - name: Prepare image context
+        run: |
+          mkdir image
+          cp bazel-bin/typesense-server image/typesense-server
+          cp docker/deployment.Dockerfile image/Dockerfile
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image tags
+        id: tags
+        shell: bash
+        run: |
+          tags="${IMAGE_NAME}:${GITHUB_SHA}"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tags="${tags}"$'\n'"${IMAGE_NAME}:${GITHUB_REF_NAME}"
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${{ inputs.image_tag }}" ]]; then
+            tags="${tags}"$'\n'"${IMAGE_NAME}:${{ inputs.image_tag }}"
+          elif [[ "${GITHUB_REF_NAME}" == "v31" ]]; then
+            tags="${tags}"$'\n'"${IMAGE_NAME}:v31-index-snapshot"
+          fi
+
+          {
+            echo "tags<<EOF"
+            echo "${tags}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Docker builder
+        uses: useblacksmith/setup-docker-builder@v1
+        with:
+          max-cache-size-mb: "10240"
+
+      - name: Build and push image
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: image
+          file: image/Dockerfile
+          platforms: linux/amd64
+          push: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/useforesight/typesense
+            org.opencontainers.image.description=Typesense with index snapshot cache support
+            org.opencontainers.image.licenses=GPL-3.0
+          tags: ${{ steps.tags.outputs.tags }}

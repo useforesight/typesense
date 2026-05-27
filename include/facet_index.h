@@ -3,6 +3,7 @@
 #include "ids_t.h"
 #include "tsl/htrie_map.h"
 #include <unordered_set>
+#include <iosfwd>
 #include <posting_list.h>
 #include <num_tree.h>
 #include <list>
@@ -133,6 +134,10 @@ public:
     facet_index_t() = default;
 
     ~facet_index_t();
+
+    void snapshot_write(std::ostream& out) const;
+
+    void snapshot_read(std::istream& in);
 
     void insert(const std::string& field_name, std::unordered_map<facet_value_id_t,
                 std::vector<uint32_t>, facet_value_id_t::Hash>& fvalue_to_seq_ids,

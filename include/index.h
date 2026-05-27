@@ -726,6 +726,14 @@ public:
 
     ~Index();
 
+    Option<bool> save_snapshot(const std::string& snapshot_path, const nlohmann::json& manifest) const;
+
+    Option<nlohmann::json> load_snapshot(const std::string& snapshot_path);
+
+    static Option<nlohmann::json> read_snapshot_manifest(const std::string& snapshot_path);
+
+    bool supports_snapshot(std::string& unsupported_reason) const;
+
     static void concat_topster_ids(Topster<KV>*& topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
 
     static int64_t score_results2(const std::vector<sort_by> & sort_fields, const uint16_t & query_index,

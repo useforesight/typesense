@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <iosfwd>
 #include "sparsepp.h"
 #include "sorted_array.h"
 #include "array_utils.h"
@@ -25,6 +26,10 @@ private:
 public:
 
     ~num_tree_t();
+
+    void snapshot_write(std::ostream& out) const;
+
+    void snapshot_read(std::istream& in);
 
     void insert(int64_t value, uint32_t id, bool is_facet=false);
 

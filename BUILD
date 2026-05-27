@@ -178,6 +178,39 @@ config_setting(
 )
 
 cc_test(
+    name = "index-snapshot-test",
+    srcs = [
+        ":src_files",
+        "test/index_snapshot_test.cpp",
+        "test/main.cpp",
+    ],
+    copts = TEST_COPTS + select({
+        ":release_mode": ["-O2"],
+        ":asan_mode": ["-O0"] + ASAN_COPTS,
+        "//conditions:default": ["-O0"]
+    }),
+    data = [
+        ":test_data_files",
+        "@libart//:data",
+        "@token_offsets//file",
+    ],
+    deps = [
+        ":common_deps",
+        "@com_google_googletest//:gtest",
+    ],
+    defines = [
+        "ROOT_DIR="
+    ],
+    linkopts = select({
+       ":asan_mode": ["-fsanitize=address", "-fuse-ld=lld"],
+       "//conditions:default": []
+    }) +  select({
+       "@platforms//os:linux": ["-fuse-ld=lld"],
+       "//conditions:default": [],
+   })
+)
+
+cc_test(
     name = "typesense-test",
     srcs = [
         ":src_files",

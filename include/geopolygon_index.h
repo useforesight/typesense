@@ -38,4 +38,8 @@ public:
 
     //remove polygon from index
     void removePolygon(uint32_t seq_id);
+
+    size_t size() const {
+        return seqidToPolygons.size();
+    }
 };

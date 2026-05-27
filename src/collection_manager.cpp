@@ -17,6 +17,7 @@
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
 #include "natural_language_search_model_manager.h"
+#include "file_utils.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -683,6 +684,38 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
 void CollectionManager::dispose() {
     std::unique_lock lock(mutex);
+
+    if(Config::get_instance().get_enable_index_snapshot()) {
+        const auto snapshot_dir = Config::get_instance().get_index_snapshot_dir();
+        if(!directory_exists(snapshot_dir)) {
+            create_directory(snapshot_dir);
+        }
+
+        const auto store_seq_number = store->get_latest_seq_number();
+        for(const auto& kv: collections) {
+            std::string collection_meta_str;
+            auto status = store->get(Collection::get_meta_key(kv.first), collection_meta_str);
+            if(status != StoreStatus::FOUND) {
+                LOG(WARNING) << "Could not fetch collection meta while saving index snapshot for "
+                             << kv.first;
+                continue;
+            }
+
+            auto collection_meta = nlohmann::json::parse(collection_meta_str, nullptr, false);
+            if(collection_meta.is_discarded()) {
+                LOG(WARNING) << "Could not parse collection meta while saving index snapshot for "
+                             << kv.first;
+                continue;
+            }
+
+            const auto snapshot_path = kv.second->get_index_snapshot_path(snapshot_dir);
+            auto snapshot_save_op = kv.second->save_index_snapshot(snapshot_path, collection_meta, store_seq_number);
+            if(!snapshot_save_op.ok()) {
+                LOG(WARNING) << "Could not save index snapshot for collection " << kv.first
+                             << ": " << snapshot_save_op.error();
+            }
+        }
+    }
 
     collections.clear();
     collection_symlinks.clear();
@@ -2137,6 +2170,56 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
+    if(Config::get_instance().get_enable_index_snapshot()) {
+        const auto snapshot_dir = Config::get_instance().get_index_snapshot_dir();
+        if(!directory_exists(snapshot_dir)) {
+            create_directory(snapshot_dir);
+        }
+
+        const auto snapshot_path = collection->get_index_snapshot_path(snapshot_dir);
+        auto expected_manifest = collection->build_index_snapshot_manifest(collection_meta,
+                                                                          cm.store->get_latest_seq_number());
+        auto snapshot_manifest_op = Index::read_snapshot_manifest(snapshot_path);
+        if(snapshot_manifest_op.ok() && snapshot_manifest_op.get().contains("num_documents")) {
+            expected_manifest["num_documents"] = snapshot_manifest_op.get()["num_documents"];
+        }
+
+        auto snapshot_load_op = collection->load_index_snapshot(snapshot_path, expected_manifest);
+        if(snapshot_load_op.ok()) {
+            cm.add_to_collections(collection);
+            LOG(INFO) << "Loaded collection " << collection->get_name()
+                      << " from index snapshot " << snapshot_path;
+            return Option<bool>(true);
+        }
+
+        LOG(INFO) << "Skipping index snapshot for collection " << collection->get_name()
+                  << ": " << snapshot_load_op.error();
+
+        auto synonym_sets = collection->get_synonym_sets();
+        auto curation_sets = collection->get_curation_sets();
+        delete collection;
+
+        op = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_infos);
+        if(!op.ok()) {
+            return Option<bool>(op.code(), op.error());
+        }
+
+        collection = op.get();
+        if(!synonym_sets.empty()) {
+            auto set_synonym_op = collection->set_synonym_sets(synonym_sets);
+            if(!set_synonym_op.ok()) {
+                return Option<bool>(set_synonym_op.code(), set_synonym_op.error());
+            }
+        }
+
+        if(!curation_sets.empty()) {
+            auto set_curation_op = collection->set_curation_sets(curation_sets);
+            if(!set_curation_op.ok()) {
+                return Option<bool>(set_curation_op.code(), set_curation_op.error());
+            }
+        }
+    }
+
     // Fetch records from the store and re-create memory index
     const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
     std::string upper_bound_key = collection->get_seq_id_collection_prefix() + "`";  // cannot inline this
@@ -2228,6 +2311,24 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     LOG(INFO) << "Indexed " << num_indexed_docs << "/" << num_found_docs
               << " documents into collection " << collection->get_name();
+
+    if(Config::get_instance().get_enable_index_snapshot()) {
+        const auto snapshot_dir = Config::get_instance().get_index_snapshot_dir();
+        if(!directory_exists(snapshot_dir)) {
+            create_directory(snapshot_dir);
+        }
+
+        const auto snapshot_path = collection->get_index_snapshot_path(snapshot_dir);
+        auto snapshot_save_op = collection->save_index_snapshot(snapshot_path, collection_meta,
+                                                               cm.store->get_latest_seq_number());
+        if(snapshot_save_op.ok()) {
+            LOG(INFO) << "Saved index snapshot for collection " << collection->get_name()
+                      << " to " << snapshot_path;
+        } else {
+            LOG(WARNING) << "Could not save index snapshot for collection " << collection->get_name()
+                         << ": " << snapshot_save_op.error();
+        }
+    }
 
     return Option<bool>(true);
 }

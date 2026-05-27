@@ -879,6 +879,8 @@ public:
 
     std::string get_seq_id_collection_prefix() const;
 
+    std::string get_index_snapshot_path(const std::string& snapshot_dir) const;
+
     std::string get_name() const;
 
     uint64_t get_created_at() const;
@@ -948,6 +950,16 @@ public:
                                   const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec = {});
 
     const Index* _get_index() const;
+
+    nlohmann::json build_index_snapshot_manifest(const nlohmann::json& collection_meta,
+                                                 uint64_t store_seq_number) const;
+
+    Option<bool> save_index_snapshot(const std::string& snapshot_path,
+                                     const nlohmann::json& collection_meta,
+                                     uint64_t store_seq_number) const;
+
+    Option<bool> load_index_snapshot(const std::string& snapshot_path,
+                                     const nlohmann::json& expected_manifest);
 
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, nlohmann::json &document,
                                std::string &value) const;

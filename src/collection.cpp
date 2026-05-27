@@ -6427,6 +6427,10 @@ std::string Collection::get_seq_id_collection_prefix() const {
     return std::to_string(collection_id) + "_" + std::string(SEQ_ID_PREFIX);
 }
 
+std::string Collection::get_index_snapshot_path(const std::string& snapshot_dir) const {
+    return snapshot_dir + "/" + std::to_string(collection_id.load()) + ".idxsnap";
+}
+
 std::string Collection::get_default_sorting_field() {
     std::shared_lock lock(mutex);
     return default_sorting_field;
@@ -6528,6 +6532,52 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key,
 
 const Index* Collection::_get_index() const {
     return index;
+}
+
+nlohmann::json Collection::build_index_snapshot_manifest(const nlohmann::json& collection_meta,
+                                                         uint64_t store_seq_number) const {
+    std::shared_lock lock(mutex);
+    nlohmann::json manifest;
+    manifest["format"] = "typesense-index-snapshot";
+    manifest["version"] = 1;
+    manifest["collection_name"] = name;
+    manifest["collection_id"] = collection_id.load();
+    manifest["next_seq_id"] = next_seq_id.load();
+    manifest["num_documents"] = num_documents.load();
+    manifest["store_seq_number"] = store_seq_number;
+    manifest["collection_meta"] = collection_meta;
+    return manifest;
+}
+
+Option<bool> Collection::save_index_snapshot(const std::string& snapshot_path,
+                                             const nlohmann::json& collection_meta,
+                                             uint64_t store_seq_number) const {
+    auto manifest = build_index_snapshot_manifest(collection_meta, store_seq_number);
+    return index->save_snapshot(snapshot_path, manifest);
+}
+
+Option<bool> Collection::load_index_snapshot(const std::string& snapshot_path,
+                                             const nlohmann::json& expected_manifest) {
+    auto manifest_op = Index::read_snapshot_manifest(snapshot_path);
+    if(!manifest_op.ok()) {
+        return Option<bool>(manifest_op.code(), manifest_op.error());
+    }
+
+    if(manifest_op.get() != expected_manifest) {
+        return Option<bool>(409, "Index snapshot manifest does not match current collection state.");
+    }
+
+    auto load_op = index->load_snapshot(snapshot_path);
+    if(!load_op.ok()) {
+        return Option<bool>(load_op.code(), load_op.error());
+    }
+
+    {
+        std::unique_lock lock(mutex);
+        num_documents = expected_manifest["num_documents"].get<size_t>();
+    }
+
+    return Option<bool>(true);
 }
 
 Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,

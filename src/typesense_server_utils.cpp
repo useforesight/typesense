@@ -129,6 +129,8 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<int>("memory-used-max-percentage", '\0', "Reject writes when memory usage exceeds this percentage. Default: 100 (never reject).", false, 100);
     options.add<bool>("skip-writes", '\0', "Skip all writes except config changes. Default: false.", false, false);
     options.add<bool>("reset-peers-on-error", '\0', "Reset node's peers on clustering error. Default: false.", false, false);
+    options.add<bool>("enable-index-snapshot", '\0', "Enable on-disk snapshots of in-memory collection indexes for faster startup. Default: false.", false, false);
+    options.add<std::string>("index-snapshot-dir", '\0', "Directory where in-memory index snapshots are stored. Defaults to <data-dir>/index-snapshots.", false, "");
 
     options.add<int>("log-slow-searches-time-ms", '\0', "When >= 0, searches that take longer than this duration are logged.", false, 30*1000);
     options.add<uint32_t>("cache-num-entries", '\0', "Number of entries to cache.", false, 1000);
@@ -522,6 +524,15 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(INFO) << "Analytics directory " << config.get_analytics_dir() << " does not exist, will create it...";
         if(!create_directory(config.get_analytics_dir())) {
             LOG(ERROR) << "Could not create analytics directory. Quitting.";
+            return 1;
+        }
+    }
+
+    if(config.get_enable_index_snapshot() && !directory_exists(config.get_index_snapshot_dir())) {
+        LOG(INFO) << "Index snapshot directory " << config.get_index_snapshot_dir()
+                  << " does not exist, will create it...";
+        if(!create_directory(config.get_index_snapshot_dir())) {
+            LOG(ERROR) << "Could not create index snapshot directory. Quitting.";
             return 1;
         }
     }

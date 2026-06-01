@@ -216,3 +216,15 @@ TEST(ConfigTest, CorsDefaults) {
     ASSERT_EQ(true, config3.get_enable_cors());
     ASSERT_EQ(1, config3.get_cors_domains().size());
 }
+
+TEST(ConfigTest, UpdateProxySourceIpsParsesBracketedIpv6Nodes) {
+    ConfigImpl config;
+
+    config.update_proxy_src_ips("[fd00::1]:8107:8118,[fd00::2]:8107:8118,127.0.0.1:9107:9118");
+
+    const auto& allowed_src_ips = config.get_proxy_allowed_src_ips();
+    ASSERT_EQ(3, allowed_src_ips.size());
+    ASSERT_EQ("fd00::1", allowed_src_ips[0]);
+    ASSERT_EQ("fd00::2", allowed_src_ips[1]);
+    ASSERT_EQ("127.0.0.1", allowed_src_ips[2]);
+}

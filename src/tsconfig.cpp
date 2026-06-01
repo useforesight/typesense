@@ -841,10 +841,25 @@ void Config::update_proxy_src_ips(const std::string& nodes_config) {
     std::vector<std::string> node_ips;
 
     for(const auto& node_string: node_strings) {
-        std::vector<std::string> node_parts;
-        StringUtils::split(node_string, node_parts, ":");
-        if(node_parts.size() == 3) {
-          node_ips.push_back(node_parts[0]);
+        if(node_string.empty()) {
+            continue;
+        }
+
+        if(node_string[0] == '[') {
+            const auto closing_bracket_pos = node_string.find(']');
+            if(closing_bracket_pos != std::string::npos) {
+                std::vector<std::string> port_parts;
+                StringUtils::split(node_string.substr(closing_bracket_pos + 1), port_parts, ":");
+                if(port_parts.size() == 2) {
+                    node_ips.push_back(node_string.substr(1, closing_bracket_pos - 1));
+                }
+            }
+        } else {
+            std::vector<std::string> node_parts;
+            StringUtils::split(node_string, node_parts, ":");
+            if(node_parts.size() == 3) {
+                node_ips.push_back(node_parts[0]);
+            }
         }
     }
 

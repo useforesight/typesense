@@ -121,13 +121,23 @@ TEST_F(APIAclTest, DeniesUnbracketedIpv6Hosts) {
     EXPECT_FALSE(acl.is_allowed("1.2.3.4", "::1", allowed_src_ips));
 }
 
-TEST_F(APIAclTest, DeniesBracketedIpv6HostsBecauseOnlyIpv4IsSupported) {
+TEST_F(APIAclTest, DeniesMalformedBracketedIpv6Hosts) {
     auto& acl = APIAcl::instance();
     acl.set_rate_limit_10s(0);
     acl.set_disallowed_dest_cidrs("127.0.0.0/8");
 
     const std::vector<std::string> allowed_src_ips = {"1.2.3.4"};
-    EXPECT_FALSE(acl.is_allowed("1.2.3.4", "http://[::1]:8080/", allowed_src_ips));
+    EXPECT_FALSE(acl.is_allowed("1.2.3.4", "http://[::1]example.com/", allowed_src_ips));
+    EXPECT_FALSE(acl.is_allowed("1.2.3.4", "http://[::1]@example.com/", allowed_src_ips));
+}
+
+TEST_F(APIAclTest, AllowsBracketedIpv6Hosts) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("127.0.0.0/8");
+
+    const std::vector<std::string> allowed_src_ips = {"1.2.3.4"};
+    EXPECT_TRUE(acl.is_allowed("1.2.3.4", "http://[::1]:8080/", allowed_src_ips));
 }
 
 TEST_F(APIAclTest, BlocksWhenResolvedDestinationIpFallsInDisallowedCidr) {
@@ -221,4 +231,100 @@ TEST_F(APIAclTest, DisablingRateLimitAllowsRequestsAgain) {
 
     acl.set_rate_limit_10s(0);
     EXPECT_TRUE(acl.is_allowed("8.8.1.1", "http://192.169.1.200", allowed_src_ips));
+}
+
+TEST_F(APIAclTest, AllowsNativeIpv6SourceAddressWhenAllowedSourceIpsEmpty) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("");
+
+    const std::vector<std::string> allowed_src_ips;
+    EXPECT_TRUE(acl.is_allowed("fd00::1234", "http://8.8.8.8:80", allowed_src_ips));
+    EXPECT_TRUE(acl.is_allowed("::1", "http://8.8.8.8:80", allowed_src_ips));
+}
+
+TEST_F(APIAclTest, AllowsNativeIpv6SourceAddressInAllowedList) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("");
+
+    const std::vector<std::string> allowed_src_ips = {"fd00::1234"};
+    EXPECT_TRUE(acl.is_allowed("fd00::1234", "http://8.8.8.8:80", allowed_src_ips));
+    EXPECT_FALSE(acl.is_allowed("fd00::5678", "http://8.8.8.8:80", allowed_src_ips));
+}
+
+TEST_F(APIAclTest, AllowsBracketedNativeIpv6SourceAddressInAllowedList) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("");
+
+    const std::vector<std::string> allowed_src_ips = {"[fd00::1234]"};
+    EXPECT_TRUE(acl.is_allowed("fd00::1234", "http://8.8.8.8:80", allowed_src_ips));
+}
+
+TEST_F(APIAclTest, AllowsIpv4MappedIpv6SourceAddress) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("");
+
+    const std::vector<std::string> allowed_src_ips;
+    EXPECT_TRUE(acl.is_allowed("::ffff:192.168.1.28", "http://8.8.8.8:80", allowed_src_ips));
+    EXPECT_TRUE(acl.is_allowed("::FFFF:192.168.1.28", "http://8.8.8.8:80", allowed_src_ips));
+    EXPECT_TRUE(acl.is_allowed("::ffff:127.0.0.1", "http://8.8.8.8:80", allowed_src_ips));
+}
+
+TEST_F(APIAclTest, Ipv4MappedSrcMatchesAllowedList) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("");
+
+    const std::vector<std::string> allowed_src_ips = {"192.168.1.28"};
+    EXPECT_TRUE(acl.is_allowed("::ffff:192.168.1.28", "http://8.8.8.8:80", allowed_src_ips));
+    EXPECT_TRUE(acl.is_allowed("::FFFF:192.168.1.28", "http://8.8.8.8:80", allowed_src_ips));
+    EXPECT_TRUE(acl.is_allowed("::ffff:c0a8:011c", "http://8.8.8.8:80", allowed_src_ips));
+    EXPECT_FALSE(acl.is_allowed("::ffff:10.0.0.1", "http://8.8.8.8:80", allowed_src_ips));
+}
+
+TEST_F(APIAclTest, Ipv4MappedSrcStillBlockedByDisallowedDest) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("127.0.0.0/8");
+
+    const std::vector<std::string> allowed_src_ips = {"1.2.3.4"};
+    EXPECT_FALSE(acl.is_allowed("::ffff:1.2.3.4", "http://127.0.0.1:80", allowed_src_ips));
+    EXPECT_FALSE(acl.is_allowed("::FFFF:1.2.3.4", "http://127.0.0.1:80", allowed_src_ips));
+    EXPECT_FALSE(acl.is_allowed("::ffff:1.2.3.4", "http://[::FFFF:127.0.0.1]:80", allowed_src_ips));
+    EXPECT_FALSE(acl.is_allowed("::ffff:1.2.3.4", "http://[::ffff:7f00:1]:80", allowed_src_ips));
+    EXPECT_TRUE(acl.is_allowed("::ffff:1.2.3.4", "http://8.8.8.8:80", allowed_src_ips));
+}
+
+TEST_F(APIAclTest, BlocksIpv6DestinationInDisallowedCidr) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("fd00::/8");
+
+    const std::vector<std::string> allowed_src_ips = {"1.2.3.4"};
+    EXPECT_FALSE(acl.is_allowed("1.2.3.4", "http://[fd00::1]:80", allowed_src_ips));
+    EXPECT_TRUE(acl.is_allowed("1.2.3.4", "http://[2001:4860:4860::8888]:80", allowed_src_ips));
+}
+
+TEST_F(APIAclTest, BlocksExactIpv6DestinationWithCidr128) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("::1/128");
+
+    const std::vector<std::string> allowed_src_ips = {"1.2.3.4"};
+    EXPECT_FALSE(acl.is_allowed("1.2.3.4", "http://[::1]:80", allowed_src_ips));
+    EXPECT_TRUE(acl.is_allowed("1.2.3.4", "http://[::2]:80", allowed_src_ips));
+}
+
+TEST_F(APIAclTest, BlocksAllIpv6DestinationsWithCidr0) {
+    auto& acl = APIAcl::instance();
+    acl.set_rate_limit_10s(0);
+    acl.set_disallowed_dest_cidrs("::/0");
+
+    const std::vector<std::string> allowed_src_ips = {"1.2.3.4"};
+    EXPECT_FALSE(acl.is_allowed("1.2.3.4", "http://[::1]:80", allowed_src_ips));
+    EXPECT_FALSE(acl.is_allowed("1.2.3.4", "http://[2001:4860:4860::8888]:80", allowed_src_ips));
+    EXPECT_TRUE(acl.is_allowed("1.2.3.4", "http://8.8.8.8:80", allowed_src_ips));
 }

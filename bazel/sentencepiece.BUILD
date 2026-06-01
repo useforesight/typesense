@@ -23,6 +23,12 @@ cmake(
     lib_source = "//:sentencepiece_src",
     out_static_libs = ["libsentencepiece.a"],
     out_include_dir = "include",
+    # Bazel's Linux static-libstdc++ spelling uses `%:`. CMake's Makefile
+    # generator can leak that into generated make dependencies, where GNU make
+    # treats it as pattern syntax and fails before compiling sentencepiece.
+    env = {
+        "BAZEL_LINKLIBS": "",
+    },
     build_args = [
         "--config Release",
         "--target sentencepiece-static",

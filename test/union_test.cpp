@@ -2788,8 +2788,8 @@ TEST_F(UnionTest, UnionHighlightingUAFRaceASAN) {
       search_done.store(true, std::memory_order_release);
     });
 
-    // Give do_union a head-start to enter run_search/process_highlight_fields_with_lock.
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    // Let do_union start without giving fast runners enough time to finish before mutations begin.
+    std::this_thread::yield();
 
     size_t local_mutations = 0;
     size_t local_mutations_during_search = 0;

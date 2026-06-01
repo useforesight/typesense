@@ -11,6 +11,7 @@
 #include <conversation_model.h>
 #include <core_api.h>
 #include <gtest/gtest.h>
+#include <http_proxy.h>
 #include <map>
 #include <unistd.h>
 #include <vector>
@@ -2149,7 +2150,17 @@ TEST_F(CoreAPIUtilsTest, TestProxy) {
 
     std::string url = "https://typesense.org";
 
-    long expected_status_code = HttpClient::get_instance().get_response(url, res, res_headers, headers);
+    long expected_status_code = 500;
+    for(size_t i = 0; i < HttpProxy::default_num_try; i++) {
+        res.clear();
+        res_headers.clear();
+        expected_status_code = HttpClient::get_instance().get_response(url, res, res_headers, headers,
+                                                                       HttpProxy::default_timeout_ms);
+
+        if(expected_status_code != 408 && expected_status_code < 500) {
+            break;
+        }
+    }
 
     auto req = std::make_shared<http_req>();
     auto resp = std::make_shared<http_res>(nullptr);

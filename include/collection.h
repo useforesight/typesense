@@ -9,6 +9,7 @@
 #include <memory>
 #include <atomic>
 #include <mutex>
+#include <functional>
 #include <condition_variable>
 #include <shared_mutex>
 #include "art.h"
@@ -867,6 +868,7 @@ public:
     // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
     static constexpr const char* COLLECTION_META_PREFIX = "$CM";
     static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
+    static constexpr const char* COLLECTION_INDEX_SNAPSHOT_VERSION_PREFIX = "$CISV";
     static constexpr const char* SEQ_ID_PREFIX = "$SI";
     static constexpr const char* DOC_ID_PREFIX = "$DI";
 
@@ -909,10 +911,14 @@ public:
 
     static std::string get_next_seq_id_key(const std::string & collection_name);
 
+    static std::string get_index_snapshot_version_key(const std::string& collection_name);
+
     static std::string get_meta_key(const std::string & collection_name);
 
 
     std::string get_seq_id_collection_prefix() const;
+
+    std::string get_index_snapshot_path(const std::string& snapshot_dir) const;
 
     std::string get_name() const;
 
@@ -983,6 +989,17 @@ public:
                                   const std::vector<ref_include_exclude_fields>& ref_include_exclude_fields_vec = {});
 
     const Index* _get_index() const;
+
+    nlohmann::json build_index_snapshot_manifest(const nlohmann::json& collection_meta,
+                                                 uint32_t index_snapshot_version) const;
+
+    Option<bool> save_index_snapshot(const std::string& snapshot_path,
+                                     const nlohmann::json& collection_meta,
+                                     uint32_t index_snapshot_version,
+                                     const std::function<Option<bool>()>& before_commit = {}) const;
+
+    Option<bool> load_index_snapshot(const std::string& snapshot_path,
+                                     const nlohmann::json& expected_manifest);
 
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, nlohmann::json &document,
                                std::string &value) const;

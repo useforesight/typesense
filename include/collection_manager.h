@@ -82,6 +82,8 @@ private:
                                                            const std::string& old_collection_name,
                                                            const std::string& new_collection_name);
 
+    Option<bool> save_index_snapshot_for_collection(const std::string& collection_name);
+
 public:
     static constexpr const size_t DEFAULT_NUM_MEMORY_SHARDS = 4;
 
@@ -138,6 +140,8 @@ public:
 
     // frees in-memory data structures when server is shutdown - helps us run a memory leak detector properly
     void dispose();
+
+    void save_index_snapshots();
 
     bool auth_key_matches(const string& req_auth_key, const string& action,
                           const std::vector<collection_key_t>& collection_keys,

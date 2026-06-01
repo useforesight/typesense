@@ -329,6 +329,12 @@ void Config::load_config_env() {
       this->proxy_allow_only_peer_src_ips = std::stoi(get_env("TYPESENSE_PROXY_ALLOW_ONLY_PEER_SRC_IPS"));
     }
 
+    this->enable_index_snapshot = ("TRUE" == get_env("TYPESENSE_ENABLE_INDEX_SNAPSHOT"));
+
+    if(!get_env("TYPESENSE_INDEX_SNAPSHOT_DIR").empty()) {
+        this->index_snapshot_dir = get_env("TYPESENSE_INDEX_SNAPSHOT_DIR");
+    }
+
     if(!get_env("TYPESENSE_SHUTDOWN_DELAY_SECONDS").empty()) {
         this->shutdown_delay_seconds = std::stoi(get_env("TYPESENSE_SHUTDOWN_DELAY_SECONDS"));
     }
@@ -546,6 +552,15 @@ void Config::load_config_file(cmdline::parser& options) {
     if(reader.Exists("server", "reset-peers-on-error")) {
         auto reset_peers_on_error_str = reader.Get("server", "reset-peers-on-error", "false");
         this->reset_peers_on_error = (reset_peers_on_error_str == "true");
+    }
+
+    if(reader.Exists("server", "enable-index-snapshot")) {
+        auto enable_index_snapshot_str = reader.Get("server", "enable-index-snapshot", "false");
+        this->enable_index_snapshot = (enable_index_snapshot_str == "true");
+    }
+
+    if(reader.Exists("server", "index-snapshot-dir")) {
+        this->index_snapshot_dir = reader.Get("server", "index-snapshot-dir", "");
     }
 
     if(reader.Exists("server", "max-per-page")) {
@@ -771,6 +786,14 @@ void Config::load_config_cmd_args(cmdline::parser& options)  {
 
     if(options.exist("reset-peers-on-error")) {
         this->reset_peers_on_error = options.get<bool>("reset-peers-on-error");
+    }
+
+    if(options.exist("enable-index-snapshot")) {
+        this->enable_index_snapshot = options.get<bool>("enable-index-snapshot");
+    }
+
+    if(options.exist("index-snapshot-dir")) {
+        this->index_snapshot_dir = options.get<std::string>("index-snapshot-dir");
     }
 
     if(options.exist("enable-search-analytics")) {

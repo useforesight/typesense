@@ -2,6 +2,7 @@
 #include <vector>
 #include <queue>
 #include <set>
+#include <butil/files/file_enumerator.h>
 #include <json.hpp>
 #include <app_metrics.h>
 #include <analytics_manager.h>
@@ -17,6 +18,7 @@
 #include "synonym_index_manager.h"
 #include "curation_index_manager.h"
 #include "natural_language_search_model_manager.h"
+#include "file_utils.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -115,6 +117,119 @@ Option<bool> apply_staged_async_reference_helper_backfills(
     }
 
     return Option<bool>(true);
+}
+
+namespace {
+
+uint32_t get_index_snapshot_version(Store* store, const std::string& collection_name) {
+    std::string version_str;
+    const auto status = store->get(Collection::get_index_snapshot_version_key(collection_name), version_str);
+    if(status != StoreStatus::FOUND) {
+        return 0;
+    }
+
+    return StringUtils::deserialize_uint32_t(version_str);
+}
+
+bool get_index_snapshot_file_collection_id(const std::string& file_name, uint32_t& collection_id,
+                                           bool& is_tmp_file) {
+    static const std::string snapshot_marker = ".idxsnap";
+    static const std::string payload_prefix = ".payload.";
+    static const std::string tmp_payload_prefix = ".tmp.payload.";
+    static constexpr size_t mkstemp_suffix_size = 6;
+
+    const auto snapshot_marker_pos = file_name.find(snapshot_marker);
+    if(snapshot_marker_pos == std::string::npos) {
+        return false;
+    }
+
+    const auto collection_id_str = file_name.substr(0, snapshot_marker_pos);
+    if(!StringUtils::is_uint32_t(collection_id_str)) {
+        return false;
+    }
+
+    const auto suffix = file_name.substr(snapshot_marker_pos + snapshot_marker.size());
+    if(suffix.empty()) {
+        is_tmp_file = false;
+    } else if(suffix == ".tmp" ||
+              (suffix.rfind(payload_prefix, 0) == 0 &&
+               suffix.size() == payload_prefix.size() + mkstemp_suffix_size) ||
+              (suffix.rfind(tmp_payload_prefix, 0) == 0 &&
+               suffix.size() == tmp_payload_prefix.size() + mkstemp_suffix_size)) {
+        is_tmp_file = true;
+    } else {
+        return false;
+    }
+
+    collection_id = static_cast<uint32_t>(std::stoul(collection_id_str));
+    return true;
+}
+
+void remove_index_snapshot_files(Collection& collection) {
+    if(!Config::get_instance().get_enable_index_snapshot()) {
+        return;
+    }
+
+    const auto snapshot_dir = Config::get_instance().get_index_snapshot_dir();
+    if(!directory_exists(snapshot_dir)) {
+        return;
+    }
+
+    size_t removed = 0;
+    const auto snapshot_path = collection.get_index_snapshot_path(snapshot_dir);
+    for(const auto& path: {snapshot_path, snapshot_path + ".tmp"}) {
+        if(file_exists(path)) {
+            if(delete_path(path, false)) {
+                removed++;
+            } else {
+                LOG(WARNING) << "Could not remove index snapshot file " << path;
+            }
+        }
+    }
+
+    if(removed != 0) {
+        LOG(INFO) << "Removed " << removed << " index snapshot file(s) for collection "
+                  << collection.get_name() << ".";
+    }
+}
+
+void remove_stale_index_snapshot_files(const std::set<uint32_t>& live_collection_ids) {
+    if(!Config::get_instance().get_enable_index_snapshot()) {
+        return;
+    }
+
+    const auto snapshot_dir = Config::get_instance().get_index_snapshot_dir();
+    if(!directory_exists(snapshot_dir)) {
+        return;
+    }
+
+    size_t removed = 0;
+    butil::FileEnumerator file_enum(butil::FilePath(snapshot_dir), false, butil::FileEnumerator::FILES);
+    for(butil::FilePath file = file_enum.Next(); !file.empty(); file = file_enum.Next()) {
+        const auto file_name = file.BaseName().value();
+        uint32_t collection_id = 0;
+        bool is_tmp_file = false;
+        if(!get_index_snapshot_file_collection_id(file_name, collection_id, is_tmp_file)) {
+            continue;
+        }
+
+        if(!is_tmp_file && live_collection_ids.count(collection_id) != 0) {
+            continue;
+        }
+
+        const auto snapshot_path = snapshot_dir + "/" + file_name;
+        if(delete_path(snapshot_path, false)) {
+            removed++;
+        } else {
+            LOG(WARNING) << "Could not remove stale index snapshot file " << snapshot_path;
+        }
+    }
+
+    if(removed != 0) {
+        LOG(INFO) << "Removed " << removed << " stale or interrupted index snapshot file(s).";
+    }
+}
+
 }
 
 CollectionManager::CollectionManager() {
@@ -630,6 +745,24 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     const size_t num_collections = collection_meta_jsons.size();
     LOG(INFO) << "Found " << num_collections << " collection(s) on disk.";
 
+    std::set<uint32_t> live_collection_ids;
+    bool can_cleanup_index_snapshots = true;
+    for(const auto& collection_meta_json: collection_meta_jsons) {
+        const auto collection_meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
+        if(collection_meta.is_discarded() ||
+           !collection_meta.contains(Collection::COLLECTION_ID_KEY) ||
+           !collection_meta[Collection::COLLECTION_ID_KEY].is_number_unsigned()) {
+            can_cleanup_index_snapshots = false;
+            break;
+        }
+
+        live_collection_ids.insert(
+            collection_meta[Collection::COLLECTION_ID_KEY].get<uint32_t>());
+    }
+    if(can_cleanup_index_snapshots) {
+        remove_stale_index_snapshot_files(live_collection_ids);
+    }
+
     if (!store->contains(REFERENCED_INS)) {
         _populate_referenced_ins(collection_meta_jsons, referenced_ins);
         persist_referenced_ins();
@@ -832,10 +965,134 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     return Option<bool>(true);
 }
 
+Option<bool> CollectionManager::save_index_snapshot_for_collection(const std::string& collection_name) {
+    if(!Config::get_instance().get_enable_index_snapshot()) {
+        return Option<bool>(true);
+    }
+
+    std::shared_ptr<Collection> collection;
+    {
+        std::shared_lock lock(mutex);
+        auto collection_it = collections.find(collection_name);
+        if(collection_it == collections.end()) {
+            return Option<bool>(404, "Collection not found while saving index snapshot.");
+        }
+        collection = collection_it->second;
+    }
+
+    std::string collection_meta_str;
+    auto status = store->get(Collection::get_meta_key(collection_name), collection_meta_str);
+    if(status != StoreStatus::FOUND) {
+        return Option<bool>(404, "Could not fetch collection meta while saving index snapshot.");
+    }
+
+    auto collection_meta = nlohmann::json::parse(collection_meta_str, nullptr, false);
+    if(collection_meta.is_discarded()) {
+        return Option<bool>(400, "Could not parse collection meta while saving index snapshot.");
+    }
+
+    const auto snapshot_dir = Config::get_instance().get_index_snapshot_dir();
+    if(!directory_exists(snapshot_dir)) {
+        if(!create_directory(snapshot_dir)) {
+            return Option<bool>(500, "Could not create index snapshot directory.");
+        }
+    }
+
+    const auto snapshot_path = collection->get_index_snapshot_path(snapshot_dir);
+    const auto snapshot_version = get_index_snapshot_version(store, collection_name);
+    std::string snapshot_next_seq_id;
+    status = store->get(Collection::get_next_seq_id_key(collection_name), snapshot_next_seq_id);
+    if(status != StoreStatus::FOUND) {
+        return Option<bool>(404, "Could not fetch collection sequence while saving index snapshot.");
+    }
+
+    auto collection_state_matches = [this, collection_name, snapshot_version, snapshot_next_seq_id]() {
+        const auto current_snapshot_version = get_index_snapshot_version(store, collection_name);
+        std::string current_next_seq_id;
+        const auto next_seq_status = store->get(Collection::get_next_seq_id_key(collection_name),
+                                                current_next_seq_id);
+        return current_snapshot_version == snapshot_version &&
+               next_seq_status == StoreStatus::FOUND &&
+               current_next_seq_id == snapshot_next_seq_id;
+    };
+
+    const auto expected_manifest = collection->build_index_snapshot_manifest(collection_meta, snapshot_version);
+    auto existing_manifest_op = Index::read_snapshot_manifest(snapshot_path);
+    if(existing_manifest_op.ok() && existing_manifest_op.get() == expected_manifest &&
+       collection_state_matches()) {
+        LOG(INFO) << "Index snapshot for collection " << collection_name
+                  << " is already current; skipping rewrite.";
+        return Option<bool>(true);
+    }
+
+    auto before_commit = [collection_state_matches]() {
+        if(!collection_state_matches()) {
+            return Option<bool>(409, "Collection changed while index snapshot was being saved.");
+        }
+
+        return Option<bool>(true);
+    };
+    auto snapshot_save_op = collection->save_index_snapshot(snapshot_path, collection_meta, snapshot_version,
+                                                           before_commit);
+    if(!snapshot_save_op.ok()) {
+        return snapshot_save_op;
+    }
+
+    if(!collection_state_matches()) {
+        delete_path(snapshot_path, false);
+        return Option<bool>(409, "Collection changed while index snapshot was being saved.");
+    }
+
+    LOG(INFO) << "Saved index snapshot for collection " << collection_name
+              << " to " << snapshot_path;
+    return Option<bool>(true);
+}
+
+void CollectionManager::save_index_snapshots() {
+    if(!Config::get_instance().get_enable_index_snapshot()) {
+        return;
+    }
+
+    auto begin = std::chrono::high_resolution_clock::now();
+    std::vector<std::string> collection_names;
+    {
+        std::shared_lock lock(mutex);
+        collection_names.reserve(collections.size());
+        for(const auto& kv: collections) {
+            collection_names.push_back(kv.first);
+        }
+    }
+
+    LOG(INFO) << "Saving index snapshots for " << collection_names.size() << " collection(s).";
+
+    size_t num_succeeded = 0;
+    size_t num_failed = 0;
+    for(const auto& collection_name: collection_names) {
+        LOG(INFO) << "Saving index snapshot for collection " << collection_name << "...";
+        auto save_op = save_index_snapshot_for_collection(collection_name);
+        if(!save_op.ok()) {
+            num_failed++;
+            LOG(WARNING) << "Could not save index snapshot for collection " << collection_name
+                         << ": " << save_op.error();
+        } else {
+            num_succeeded++;
+        }
+    }
+
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::high_resolution_clock::now() - begin).count();
+    if(num_failed == 0) {
+        LOG(INFO) << "Finished saving index snapshots for " << num_succeeded
+                  << " collection(s) in " << elapsed_ms << " ms.";
+    } else {
+        LOG(WARNING) << "Finished saving index snapshots with " << num_failed
+                     << " failure(s) and " << num_succeeded
+                     << " successful save(s) in " << elapsed_ms << " ms.";
+    }
+}
 
 void CollectionManager::dispose() {
     std::unique_lock lock(mutex);
-
     collections.clear();
     collection_symlinks.clear();
     preset_configs.clear();
@@ -1273,7 +1530,9 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         }
 
         store->remove(Collection::get_next_seq_id_key(actual_coll_name));
+        store->remove(Collection::get_index_snapshot_version_key(actual_coll_name));
         store->remove(Collection::get_meta_key(actual_coll_name));
+        remove_index_snapshot_files(*collection);
     }
 
     s_lock.unlock();
@@ -2886,6 +3145,55 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         }
     }
 
+    if(Config::get_instance().get_enable_index_snapshot()) {
+        const auto snapshot_dir = Config::get_instance().get_index_snapshot_dir();
+        if(!directory_exists(snapshot_dir)) {
+            create_directory(snapshot_dir);
+        }
+
+        const auto snapshot_path = collection->get_index_snapshot_path(snapshot_dir);
+        const auto snapshot_version = get_index_snapshot_version(cm.store, this_collection_name);
+        auto expected_manifest = collection->build_index_snapshot_manifest(collection_meta,
+                                                                          snapshot_version);
+
+        auto snapshot_load_op = collection->load_index_snapshot(snapshot_path, expected_manifest);
+        if(snapshot_load_op.ok()) {
+            cm.add_to_collections(collection);
+            LOG(INFO) << "Loaded collection " << collection->get_name()
+                      << " from index snapshot " << snapshot_path;
+            return Option<bool>(true);
+        }
+
+        LOG(INFO) << "Skipping index snapshot for collection " << collection->get_name()
+                  << ": " << snapshot_load_op.error();
+
+        remove_index_snapshot_files(*collection);
+
+        auto synonym_sets = collection->get_synonym_sets();
+        auto curation_sets = collection->get_curation_sets();
+        delete collection;
+
+        op = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f, referenced_infos);
+        if(!op.ok()) {
+            return Option<bool>(op.code(), op.error());
+        }
+
+        collection = op.get();
+        if(!synonym_sets.empty()) {
+            auto set_synonym_op = collection->set_synonym_sets(synonym_sets);
+            if(!set_synonym_op.ok()) {
+                return Option<bool>(set_synonym_op.code(), set_synonym_op.error());
+            }
+        }
+
+        if(!curation_sets.empty()) {
+            auto set_curation_op = collection->set_curation_sets(curation_sets);
+            if(!set_curation_op.ok()) {
+                return Option<bool>(set_curation_op.code(), set_curation_op.error());
+            }
+        }
+    }
+
     // Fetch records from the store and re-create memory index
     const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
     std::string upper_bound_key = collection->get_seq_id_collection_prefix() + "`";  // cannot inline this
@@ -2968,6 +3276,14 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
             }
         }
 
+        if(quit && iter->Valid() && iter->key().starts_with(seq_id_prefix) &&
+           Config::get_instance().get_enable_index_snapshot()) {
+            LOG(WARNING) << "Stopped loading collection " << collection->get_name()
+                         << " before all documents were indexed; the incomplete index will not be published.";
+            delete collection;
+            return Option<bool>(true);
+        }
+
         if(quit) {
             break;
         }
@@ -2977,6 +3293,14 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     LOG(INFO) << "Indexed " << num_indexed_docs << "/" << num_found_docs
               << " documents into collection " << collection->get_name();
+
+    if(Config::get_instance().get_enable_index_snapshot()) {
+        auto snapshot_save_op = cm.save_index_snapshot_for_collection(collection->get_name());
+        if(!snapshot_save_op.ok()) {
+            LOG(WARNING) << "Could not save index snapshot for collection " << collection->get_name()
+                         << ": " << snapshot_save_op.error();
+        }
+    }
 
     return Option<bool>(true);
 }

@@ -107,6 +107,9 @@ private:
     std::vector<std::string> proxy_allowed_src_ips;
     bool proxy_allow_only_peer_src_ips;
 
+    bool enable_index_snapshot;
+    std::string index_snapshot_dir;
+
     std::shared_mutex m;
 
     uint32_t shutdown_delay_seconds;
@@ -166,6 +169,9 @@ protected:
         this->proxy_rate_limit = 1000;
 
         this->proxy_allow_only_peer_src_ips = false;
+
+        this->enable_index_snapshot = false;
+        this->index_snapshot_dir = "";
     }
 
     Config(Config const&) {
@@ -323,6 +329,14 @@ public:
 
     void set_max_group_limit(uint32_t max_group_limit) {
         this->max_group_limit = max_group_limit;
+    }
+
+    void set_enable_index_snapshot(bool enable_index_snapshot) {
+        this->enable_index_snapshot = enable_index_snapshot;
+    }
+
+    void set_index_snapshot_dir(const std::string& index_snapshot_dir) {
+        this->index_snapshot_dir = index_snapshot_dir;
     }
 
     // getters
@@ -565,6 +579,18 @@ public:
 
     bool get_proxy_allow_only_peer_src_ips() {
         return proxy_allow_only_peer_src_ips;
+    }
+
+    bool get_enable_index_snapshot() const {
+        return this->enable_index_snapshot;
+    }
+
+    std::string get_index_snapshot_dir() const {
+        if(!this->index_snapshot_dir.empty()) {
+            return this->index_snapshot_dir;
+        }
+
+        return this->data_dir + "/index-snapshots";
     }
 
     // loaders

@@ -2,6 +2,7 @@
 
 #include <ids_t.h>
 #include <set>
+#include <iosfwd>
 
 constexpr short EXPANSE = 256;
 
@@ -81,6 +82,9 @@ class NumericTrie {
 
         void seq_ids_outside_top_k(const size_t& k,  const char& max_level, size_t& ids_skipped,
                                    std::vector<uint32_t>& result, const bool& is_negative = false);
+
+        void snapshot_collect(std::vector<std::pair<uint64_t, std::vector<uint32_t>>>& entries,
+                              const char& max_level, uint64_t prefix = 0, char level = 0) const;
     };
 
     Node* negative_trie = nullptr;
@@ -96,6 +100,10 @@ public:
         delete negative_trie;
         delete positive_trie;
     }
+
+    void snapshot_write(std::ostream& out, bool geopoint = false) const;
+
+    void snapshot_read(std::istream& in, bool geopoint = false);
 
     class iterator_t {
         struct match_state {

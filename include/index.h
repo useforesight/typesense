@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -719,6 +720,13 @@ public:
           const std::vector<char>& token_separators);
 
     ~Index();
+
+    Option<bool> save_snapshot(const std::string& snapshot_path, const nlohmann::json& manifest,
+                               const std::function<Option<bool>()>& before_commit = {}) const;
+
+    Option<nlohmann::json> load_snapshot(const std::string& snapshot_path);
+
+    static Option<nlohmann::json> read_snapshot_manifest(const std::string& snapshot_path);
 
     static void concat_topster_ids(Topster<KV>*& topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
 

@@ -11027,12 +11027,22 @@ TEST_F(CollectionJoinTest, StagedAsyncReferenceBackfillDoesNotOverwriteChildUpda
     auto child_doc = child->get("child-1").get();
     ASSERT_EQ("updated after stage", child_doc["note"].get<std::string>());
 
+    std::string snapshot_version_str;
+    ASSERT_EQ(StoreStatus::FOUND,
+              store->get(Collection::get_index_snapshot_version_key(child_collection_name),
+                         snapshot_version_str));
+    const auto snapshot_version_before_apply = StringUtils::deserialize_uint32_t(snapshot_version_str);
+
     auto apply_op = parent->apply_staged_async_reference_updates(child, child_collection_name, staged_updates);
     ASSERT_TRUE(apply_op.ok()) << apply_op.error();
 
     child_doc = child->get("child-1").get();
     ASSERT_EQ("updated after stage", child_doc["note"].get<std::string>());
     ASSERT_EQ(0, child_doc["parent_id_sequence_id"].get<uint32_t>());
+    ASSERT_EQ(StoreStatus::FOUND,
+              store->get(Collection::get_index_snapshot_version_key(child_collection_name),
+                         snapshot_version_str));
+    ASSERT_EQ(snapshot_version_before_apply + 1, StringUtils::deserialize_uint32_t(snapshot_version_str));
 }
 
 TEST_F(CollectionJoinTest, StagedAsyncReferenceBackfillDoesNotOverwriteReferenceFieldUpdateBetweenStageAndApply) {

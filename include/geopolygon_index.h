@@ -9,6 +9,10 @@
 #include <s2/s2region_term_indexer.h>
 #include <s2/s2cap.h>
 #include <s2/s2builder.h>
+#include <iosfwd>
+#include <memory>
+#include <unordered_map>
+#include <vector>
 #include "option.h"
 #include "numeric_range_trie.h"
 
@@ -38,4 +42,12 @@ public:
 
     //remove polygon from index
     void removePolygon(uint32_t seq_id);
+
+    void snapshot_write(std::ostream& out) const;
+
+    void snapshot_read(std::istream& in);
+
+    size_t size() const {
+        return seqidToPolygons.size();
+    }
 };

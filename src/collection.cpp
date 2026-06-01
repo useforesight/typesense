@@ -557,6 +557,15 @@ Option<bool> Collection::apply_staged_async_reference_updates(Collection* refere
         return Option<bool>(true);
     }
 
+    const auto index_snapshot_version_key = get_index_snapshot_version_key(referencing_collection_name);
+    auto persist_document = [referencing_coll, index_snapshot_version_key](
+            uint32_t seq_id, const std::string& serialized_json) {
+        rocksdb::WriteBatch batch;
+        batch.Put(referencing_coll->get_seq_id_key(seq_id), serialized_json);
+        batch.Merge(index_snapshot_version_key, StringUtils::serialize_uint32_t(1));
+        return referencing_coll->store->batch_write(batch);
+    };
+
     std::shared_lock alter_shlock(referencing_coll->alter_mutex);
     {
         std::shared_lock schema_lock(referencing_coll->mutex);
@@ -607,7 +616,7 @@ Option<bool> Collection::apply_staged_async_reference_updates(Collection* refere
 
             const std::string& serialized_json = old_doc_for_store.dump(-1, ' ', false,
                                                                         nlohmann::detail::error_handler_t::ignore);
-            if (!referencing_coll->store->insert(referencing_coll->get_seq_id_key(record.seq_id), serialized_json)) {
+            if (!persist_document(record.seq_id, serialized_json)) {
                 LOG(ERROR) << "Failed to restore async reference helper backfill store state for document `" <<
                            record.old_doc.value("id", "") << "` in collection `" << referencing_collection_name << "`.";
             }
@@ -632,7 +641,7 @@ Option<bool> Collection::apply_staged_async_reference_updates(Collection* refere
 
         const std::string& serialized_json = new_doc_for_store.dump(-1, ' ', false,
                                                                     nlohmann::detail::error_handler_t::ignore);
-        if (!referencing_coll->store->insert(referencing_coll->get_seq_id_key(record.seq_id), serialized_json)) {
+        if (!persist_document(record.seq_id, serialized_json)) {
             rollback_indexed_updates();
             return Option<bool>(500, "Could not write async reference helper backfill to on-disk storage.");
         }
@@ -1318,6 +1327,7 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
     }
     // We will remove all references to a document that has failed to index.
     std::vector<index_record> remove_async_reference_docs;
+    const auto index_snapshot_version_key = get_index_snapshot_version_key(name);
 
     // store only documents that were indexed in-memory successfully
     for(auto& index_record: index_records) {
@@ -1333,7 +1343,10 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                 }
                 const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
 
-                bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
+                rocksdb::WriteBatch batch;
+                batch.Put(get_seq_id_key(index_record.seq_id), serialized_json);
+                batch.Merge(index_snapshot_version_key, StringUtils::serialize_uint32_t(1));
+                bool write_ok = store->batch_write(batch);
 
                 if(!write_ok) {
                     // we will attempt to reindex the old doc on a best-effort basis
@@ -1358,6 +1371,7 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                 rocksdb::WriteBatch batch;
                 batch.Put(get_doc_id_key(index_record.doc["id"]), seq_id_str);
                 batch.Put(get_seq_id_key(index_record.seq_id), serialized_json);
+                batch.Merge(index_snapshot_version_key, StringUtils::serialize_uint32_t(1));
                 bool write_ok = store->batch_write(batch);
 
                 if(!write_ok) {
@@ -6469,8 +6483,11 @@ void Collection::remove_document(nlohmann::json & document, const uint32_t seq_i
     if(remove_from_store) {
         const std::string& id = document["id"];
 
-        store->remove(get_doc_id_key(id));
-        store->remove(get_seq_id_key(seq_id));
+        rocksdb::WriteBatch batch;
+        batch.Delete(get_doc_id_key(id));
+        batch.Delete(get_seq_id_key(seq_id));
+        batch.Merge(get_index_snapshot_version_key(name), StringUtils::serialize_uint32_t(1));
+        store->batch_write(batch);
     }
 }
 
@@ -6759,11 +6776,15 @@ Option<size_t> Collection::remove_if_found_many(const std::vector<uint32_t>& seq
     }
 
     if(remove_from_store) {
+        rocksdb::WriteBatch batch;
         for(auto& record: records) {
             const auto id = record.doc["id"].get<std::string>();
-            store->remove(get_doc_id_key(id));
-            store->remove(get_seq_id_key(record.seq_id));
+            batch.Delete(get_doc_id_key(id));
+            batch.Delete(get_seq_id_key(record.seq_id));
         }
+        batch.Merge(get_index_snapshot_version_key(name),
+                    StringUtils::serialize_uint32_t(static_cast<uint32_t>(records.size())));
+        store->batch_write(batch);
     }
 
     if(removed_docs != nullptr) {
@@ -6783,6 +6804,10 @@ uint32_t Collection::get_seq_id_from_key(const std::string & key) {
 
 std::string Collection::get_next_seq_id_key(const std::string & collection_name) {
     return std::string(COLLECTION_NEXT_SEQ_PREFIX) + "_" + collection_name;
+}
+
+std::string Collection::get_index_snapshot_version_key(const std::string& collection_name) {
+    return std::string(COLLECTION_INDEX_SNAPSHOT_VERSION_PREFIX) + "_" + collection_name;
 }
 
 std::string Collection::get_seq_id_key(uint32_t seq_id) const {
@@ -6897,6 +6922,10 @@ std::string Collection::get_seq_id_collection_prefix() const {
     return std::to_string(collection_id) + "_" + std::string(SEQ_ID_PREFIX);
 }
 
+std::string Collection::get_index_snapshot_path(const std::string& snapshot_dir) const {
+    return snapshot_dir + "/" + std::to_string(collection_id.load()) + ".idxsnap";
+}
+
 std::string Collection::get_default_sorting_field() {
     std::shared_lock lock(mutex);
     return default_sorting_field;
@@ -6998,6 +7027,78 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key,
 
 const Index* Collection::_get_index() const {
     return index;
+}
+
+nlohmann::json Collection::build_index_snapshot_manifest(const nlohmann::json& collection_meta,
+                                                         uint32_t index_snapshot_version) const {
+    std::shared_lock lock(mutex);
+    nlohmann::json manifest;
+    manifest["format"] = "typesense-index-snapshot";
+    manifest["version"] = 2;
+    manifest["collection_name"] = name;
+    manifest["collection_id"] = collection_id.load();
+    manifest["next_seq_id"] = next_seq_id.load();
+    manifest["num_documents"] = num_documents.load();
+    manifest["index_snapshot_version"] = index_snapshot_version;
+    manifest["collection_meta"] = collection_meta;
+    return manifest;
+}
+
+Option<bool> Collection::save_index_snapshot(const std::string& snapshot_path,
+                                             const nlohmann::json& collection_meta,
+                                             uint32_t index_snapshot_version,
+                                             const std::function<Option<bool>()>& before_commit) const {
+    auto manifest = build_index_snapshot_manifest(collection_meta, index_snapshot_version);
+    return index->save_snapshot(snapshot_path, manifest, before_commit);
+}
+
+Option<bool> Collection::load_index_snapshot(const std::string& snapshot_path,
+                                             const nlohmann::json& expected_manifest) {
+    auto manifest_op = Index::read_snapshot_manifest(snapshot_path);
+    if(!manifest_op.ok()) {
+        return Option<bool>(manifest_op.code(), manifest_op.error());
+    }
+
+    auto snapshot_manifest = manifest_op.get();
+    auto normalized_expected_manifest = expected_manifest;
+    snapshot_manifest.erase("num_documents");
+    normalized_expected_manifest.erase("num_documents");
+
+    if(snapshot_manifest != normalized_expected_manifest) {
+        std::vector<std::string> mismatches;
+        for(const auto& key: {"format", "version", "collection_name", "collection_id", "next_seq_id",
+                             "index_snapshot_version"}) {
+            auto snapshot_value = snapshot_manifest.value(key, nlohmann::json());
+            auto expected_value = normalized_expected_manifest.value(key, nlohmann::json());
+            if(snapshot_value != expected_value) {
+                mismatches.push_back(std::string(key) + " snapshot=" + snapshot_value.dump() +
+                                     " expected=" + expected_value.dump());
+            }
+        }
+        if(snapshot_manifest.value("collection_meta", nlohmann::json()) !=
+           normalized_expected_manifest.value("collection_meta", nlohmann::json())) {
+            mismatches.emplace_back("collection_meta differs");
+        }
+
+        std::string mismatch_msg = "Index snapshot manifest does not match current collection state.";
+        if(!mismatches.empty()) {
+            mismatch_msg += " Mismatched fields: " + StringUtils::join(mismatches, "; ");
+        }
+        return Option<bool>(409, mismatch_msg);
+    }
+
+    auto load_op = index->load_snapshot(snapshot_path);
+    if(!load_op.ok()) {
+        return Option<bool>(load_op.code(), load_op.error());
+    }
+
+    const auto restored_num_documents = index->num_seq_ids();
+    {
+        std::unique_lock lock(mutex);
+        num_documents = restored_num_documents;
+    }
+
+    return Option<bool>(true);
 }
 
 Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,
@@ -7323,7 +7424,10 @@ Option<bool> Collection::batch_alter_data(const std::vector<field>& alter_fields
 
                     remove_flat_fields(index_record.doc);
                     const std::string& serialized_json = index_record.doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
-                    bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
+                    rocksdb::WriteBatch batch;
+                    batch.Put(get_seq_id_key(index_record.seq_id), serialized_json);
+                    batch.Merge(get_index_snapshot_version_key(name), StringUtils::serialize_uint32_t(1));
+                    bool write_ok = store->batch_write(batch);
 
                     if(!write_ok) {
                         LOG(ERROR) << "Inserting doc with " << (found_embedding_field ? "new embedding" : "reference")
@@ -10827,7 +10931,10 @@ void Collection::cascade_remove(const std::vector<index_record>& records, const 
             }
             const std::string& serialized_json = update_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
 
-            bool write_ok = store->insert(get_seq_id_key(update_record.seq_id), serialized_json);
+            rocksdb::WriteBatch batch;
+            batch.Put(get_seq_id_key(update_record.seq_id), serialized_json);
+            batch.Merge(get_index_snapshot_version_key(name), StringUtils::serialize_uint32_t(1));
+            bool write_ok = store->batch_write(batch);
 
             if(!write_ok) {
                 // we will attempt to reindex the old doc on a best-effort basis
@@ -10847,8 +10954,11 @@ void Collection::cascade_remove(const std::vector<index_record>& records, const 
 
         if (remove_from_store) {
             const auto id = record.doc["id"].get<std::string>();
-            store->remove(get_doc_id_key(id));
-            store->remove(get_seq_id_key(record.seq_id));
+            rocksdb::WriteBatch batch;
+            batch.Delete(get_doc_id_key(id));
+            batch.Delete(get_seq_id_key(record.seq_id));
+            batch.Merge(get_index_snapshot_version_key(name), StringUtils::serialize_uint32_t(1));
+            store->batch_write(batch);
         }
     }
 }

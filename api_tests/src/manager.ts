@@ -19,11 +19,16 @@ export type MultiNodeConfig = {
   analyticsDir: string;
 };
 
+export type TypesenseProcessManagerOptions = {
+  additionalConfigs?: string[];
+};
+
 export class TypesenseProcessManager {
   baseDir: string;
   binaryPath: string;
   ipAddress: string;
   nodesFile: string;
+  additionalConfigs: string[];
   processes: Map<string, ServerInstance> = new Map();
   static multiNodeConfigs: MultiNodeConfig[] = [
     { name: "multi-node1", port: 5108, peerPort: 5107, dataDir: "typesense-data-1", logDir: "typesense-1", analyticsDir: "typesense-data-1/analytics_db" },
@@ -40,9 +45,14 @@ export class TypesenseProcessManager {
   constructor(
     baseDir: string = env.TYPESENSE_DATA_DIR!,
     binaryPath: string = env.TYPESENSE_BINARY_PATH!,
+    options: TypesenseProcessManagerOptions = {},
   ) {
     this.baseDir = baseDir;
     this.binaryPath = binaryPath;
+    this.additionalConfigs = [
+      ...TypesenseProcessManager.additionalConfigs,
+      ...(options.additionalConfigs ?? []),
+    ];
     this.ipAddress = this.getIpAddress();
     this.nodesFile = join(this.baseDir, "nodes");
 
@@ -94,7 +104,7 @@ export class TypesenseProcessManager {
       `--analytics-dir=${analyticsDir}`,
       `--peering-address=${this.ipAddress}`,
       `--peering-port=${peeringPort}`,
-      ...TypesenseProcessManager.additionalConfigs,
+      ...this.additionalConfigs,
     ];
     this.spawnServer(name, args, port);
     return this.waitForHealth(port);
@@ -128,7 +138,7 @@ export class TypesenseProcessManager {
       `--peering-port=${node.peerPort}`,
       `--log-dir=${logDir}`,
       `--analytics-dir=${analyticsDir}`,
-      ...TypesenseProcessManager.additionalConfigs,
+      ...this.additionalConfigs,
     ];
 
     this.spawnServer(node.name, args, node.port);
@@ -157,10 +167,10 @@ export class TypesenseProcessManager {
     }
   }
 
-  async stopServer(name: string) {
+  async stopServer(name: string, signal: string = "SIGINT") {
     const instance = this.processes.get(name);
     if (!instance) return;
-    instance.process.kill("SIGINT");
+    instance.process.kill(signal);
     await instance.process.exited;
     this.processes.delete(name);
   }

@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <iosfwd>
 #include "sparsepp.h"
 
 struct adi_node_t;
@@ -26,6 +27,10 @@ public:
     adi_tree_t();
 
     ~adi_tree_t();
+
+    void snapshot_write(std::ostream& out) const;
+
+    void snapshot_read(std::istream& in);
 
     void index(uint32_t id, const std::string& key);
 

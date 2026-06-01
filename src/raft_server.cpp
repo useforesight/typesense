@@ -340,6 +340,14 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
 
     std::shared_lock lock(node_mutex);
 
+    if(shutting_down) {
+        response->set_503("Shutting down.");
+        response->final = true;
+        response->is_alive = false;
+        request->notify();
+        return ;
+    }
+
     if(!node) {
         return ;
     }
@@ -426,9 +434,9 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
     const std::string& scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
     const std::string url = get_node_url_path(leader_addr, path, scheme);
 
-    thread_pool->enqueue([request, response, server, path, url, this]() {
-        pending_writes++;
+    pending_writes++;
 
+    thread_pool->enqueue([request, response, server, path, url, this]() {
         std::map<std::string, std::string> res_headers;
 
         if(request->http_method == "POST") {
@@ -1050,31 +1058,44 @@ void ReplicationState::shutdown() {
     LOG(INFO) << "Set shutting_down = true";
     shutting_down = true;
 
-    LOG(INFO) << "Waiting for in-flight writes to finish...";
-    while(true) {
-        const auto pending = pending_writes.load();
-        const auto queued = batched_indexer->get_queued_writes();
-        if(pending == 0 && queued == 0) {
-            break;
+    {
+        // Fence writes that passed the first shutdown check before shutting_down flipped.
+        std::unique_lock lock(node_mutex);
+    }
+
+    auto wait_for_writes = [this]() {
+        LOG(INFO) << "Waiting for in-flight writes to finish...";
+        while(true) {
+            const auto pending = pending_writes.load();
+            const auto queued = batched_indexer->get_queued_writes();
+            if(pending == 0 && queued == 0) {
+                break;
+            }
+
+            LOG(INFO) << "pending_writes: " << pending << ", queued_writes: " << queued;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         }
+    };
 
-        LOG(INFO) << "pending_writes: " << pending << ", queued_writes: " << queued;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    wait_for_writes();
+
+    {
+        std::unique_lock lock(node_mutex);
+
+        if (node) {
+            LOG(INFO) << "node->shutdown";
+            node->shutdown(nullptr);
+
+            // Blocking this thread until the node is eventually down.
+            LOG(INFO) << "node->join";
+            node->join();
+            delete node;
+            node = nullptr;
+        }
     }
 
+    wait_for_writes();
     LOG(INFO) << "Replication state shutdown, store sequence: " << store->get_latest_seq_number();
-    std::unique_lock lock(node_mutex);
-
-    if (node) {
-        LOG(INFO) << "node->shutdown";
-        node->shutdown(nullptr);
-
-        // Blocking this thread until the node is eventually down.
-        LOG(INFO) << "node->join";
-        node->join();
-        delete node;
-        node = nullptr;
-    }
 }
 
 void ReplicationState::persist_applying_index() {

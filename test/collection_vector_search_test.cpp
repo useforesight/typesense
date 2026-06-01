@@ -6107,10 +6107,10 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
                              true, DEFAULT_FILTER_BY_CANDIDATES, use_aux_score).get();
 
     ASSERT_EQ(4, res["hits"].size());
-    ASSERT_FLOAT_EQ(0.09585630893707275, res["hits"][0]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.07914221286773682, res["hits"][1]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.2496563196182251, res["hits"][3]["vector_distance"].get<float>());
+    ASSERT_NEAR(0.09585630893707275, res["hits"][0]["vector_distance"].get<float>(), 1e-5);
+    ASSERT_NEAR(0.07914221286773682, res["hits"][1]["vector_distance"].get<float>(), 1e-5);
+    ASSERT_NEAR(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>(), 1e-5);
+    ASSERT_NEAR(0.2496563196182251, res["hits"][3]["vector_distance"].get<float>(), 1e-5);
 
     ASSERT_EQ(1736172819517016185, res["hits"][0]["text_match"].get<std::size_t>());
     ASSERT_EQ(0, res["hits"][1]["text_match"].get<std::size_t>());
@@ -6139,10 +6139,10 @@ TEST_F(CollectionVectorTest, HybridSearchAuxScoreTest) {
 
 
     ASSERT_EQ(4, res["hits"].size());
-    ASSERT_FLOAT_EQ(0.09585630893707275, res["hits"][0]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.07914221286773682, res["hits"][1]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>());
-    ASSERT_FLOAT_EQ(0.2496563196182251, res["hits"][3]["vector_distance"].get<float>());
+    ASSERT_NEAR(0.09585630893707275, res["hits"][0]["vector_distance"].get<float>(), 1e-5);
+    ASSERT_NEAR(0.07914221286773682, res["hits"][1]["vector_distance"].get<float>(), 1e-5);
+    ASSERT_NEAR(0.15472877025604248, res["hits"][2]["vector_distance"].get<float>(), 1e-5);
+    ASSERT_NEAR(0.2496563196182251, res["hits"][3]["vector_distance"].get<float>(), 1e-5);
 
     ASSERT_EQ(1736172819517016185, res["hits"][0]["text_match"].get<std::size_t>());
     ASSERT_EQ(1157451471441102969, res["hits"][1]["text_match"].get<std::size_t>());

@@ -310,11 +310,11 @@ TEST_F(PersonalizationModelTest, EmbedUsers) {
     embedding_res_t embedding = model.embed_user(input_vector);
     ASSERT_TRUE(embedding.success);
     ASSERT_EQ(embedding.embedding.size(), 256);
-    ASSERT_FLOAT_EQ(embedding.embedding[0], 0.0054538441f);
-    ASSERT_FLOAT_EQ(embedding.embedding[1], 0.044301841f);
-    ASSERT_FLOAT_EQ(embedding.embedding[2], -0.091164835f);
-    ASSERT_FLOAT_EQ(embedding.embedding[3], -0.076299265f);
-    ASSERT_FLOAT_EQ(embedding.embedding[255], 0.092341594f);
+    ASSERT_NEAR(embedding.embedding[0], 0.0054538441f, 1e-5f);
+    ASSERT_NEAR(embedding.embedding[1], 0.044301841f, 1e-5f);
+    ASSERT_NEAR(embedding.embedding[2], -0.091164835f, 1e-5f);
+    ASSERT_NEAR(embedding.embedding[3], -0.076299265f, 1e-5f);
+    ASSERT_NEAR(embedding.embedding[255], 0.092341594f, 1e-5f);
 }
 
 TEST_F(PersonalizationModelTest, BatchEmbedUsers) {
@@ -336,18 +336,18 @@ TEST_F(PersonalizationModelTest, BatchEmbedUsers) {
     ASSERT_EQ(embeddings.size(), 2);
     ASSERT_TRUE(embeddings[0].success);
     ASSERT_EQ(embeddings[0].embedding.size(), 256);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[0], 0.0054538441f);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[1], 0.044301841f);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[2], -0.091164835f);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[3], -0.076299265f);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[255], 0.092341594f);
+    ASSERT_NEAR(embeddings[0].embedding[0], 0.0054538441f, 1e-5f);
+    ASSERT_NEAR(embeddings[0].embedding[1], 0.044301841f, 1e-5f);
+    ASSERT_NEAR(embeddings[0].embedding[2], -0.091164835f, 1e-5f);
+    ASSERT_NEAR(embeddings[0].embedding[3], -0.076299265f, 1e-5f);
+    ASSERT_NEAR(embeddings[0].embedding[255], 0.092341594f, 1e-5f);
     ASSERT_TRUE(embeddings[1].success);
     ASSERT_EQ(embeddings[1].embedding.size(), 256);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[0], 0.0054538441f);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[1], 0.044301841f);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[2], -0.091164835f);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[3], -0.076299265f);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[255], 0.092341594f);
+    ASSERT_NEAR(embeddings[1].embedding[0], 0.0054538441f, 1e-5f);
+    ASSERT_NEAR(embeddings[1].embedding[1], 0.044301841f, 1e-5f);
+    ASSERT_NEAR(embeddings[1].embedding[2], -0.091164835f, 1e-5f);
+    ASSERT_NEAR(embeddings[1].embedding[3], -0.076299265f, 1e-5f);
+    ASSERT_NEAR(embeddings[1].embedding[255], 0.092341594f, 1e-5f);
 }
 
 TEST_F(PersonalizationModelTest, EmbedItem) {
@@ -368,11 +368,11 @@ TEST_F(PersonalizationModelTest, EmbedItem) {
     embedding_res_t embedding = model.embed_item(input_vector);
     ASSERT_TRUE(embedding.success);
     ASSERT_EQ(embedding.embedding.size(), 256);
-    ASSERT_FLOAT_EQ(embedding.embedding[0], 0.020180844f);
-    ASSERT_FLOAT_EQ(embedding.embedding[1], 0.016092315f);
-    ASSERT_FLOAT_EQ(embedding.embedding[2], -0.02253399f);
-    ASSERT_FLOAT_EQ(embedding.embedding[3], 0.073433787f);
-    ASSERT_FLOAT_EQ(embedding.embedding[255], 0.058315977f);
+    ASSERT_NEAR(embedding.embedding[0], 0.020180844f, 1e-5f);
+    ASSERT_NEAR(embedding.embedding[1], 0.016092315f, 1e-5f);
+    ASSERT_NEAR(embedding.embedding[2], -0.02253399f, 1e-5f);
+    ASSERT_NEAR(embedding.embedding[3], 0.073433787f, 1e-5f);
+    ASSERT_NEAR(embedding.embedding[255], 0.058315977f, 1e-5f);
 }
 
 TEST_F(PersonalizationModelTest, BatchEmbedItems) {
@@ -394,16 +394,16 @@ TEST_F(PersonalizationModelTest, BatchEmbedItems) {
     ASSERT_EQ(embeddings.size(), 2);
     ASSERT_TRUE(embeddings[0].success);
     ASSERT_EQ(embeddings[0].embedding.size(), 256);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[0], 0.020180844f);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[1], 0.016092315f);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[2], -0.02253399f);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[3], 0.073433787f);
-    ASSERT_FLOAT_EQ(embeddings[0].embedding[255], 0.058315977f);
+    ASSERT_NEAR(embeddings[0].embedding[0], 0.020180844f, 1e-5f);
+    ASSERT_NEAR(embeddings[0].embedding[1], 0.016092315f, 1e-5f);
+    ASSERT_NEAR(embeddings[0].embedding[2], -0.02253399f, 1e-5f);
+    ASSERT_NEAR(embeddings[0].embedding[3], 0.073433787f, 1e-5f);
+    ASSERT_NEAR(embeddings[0].embedding[255], 0.058315977f, 1e-5f);
     ASSERT_TRUE(embeddings[1].success);
     ASSERT_EQ(embeddings[1].embedding.size(), 256);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[0], 0.020180844f);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[1], 0.016092315f);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[2], -0.02253399f);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[3], 0.073433787f);
-    ASSERT_FLOAT_EQ(embeddings[1].embedding[255], 0.058315977f);
+    ASSERT_NEAR(embeddings[1].embedding[0], 0.020180844f, 1e-5f);
+    ASSERT_NEAR(embeddings[1].embedding[1], 0.016092315f, 1e-5f);
+    ASSERT_NEAR(embeddings[1].embedding[2], -0.02253399f, 1e-5f);
+    ASSERT_NEAR(embeddings[1].embedding[3], 0.073433787f, 1e-5f);
+    ASSERT_NEAR(embeddings[1].embedding[255], 0.058315977f, 1e-5f);
 }

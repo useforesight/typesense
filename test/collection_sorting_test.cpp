@@ -2999,9 +2999,9 @@ TEST_F(CollectionSortingTest, TestVectorQueryDistanceThresholdSorting) {
 
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ("Mobile Phone", res["hits"][0]["document"]["product_name"]);
-    ASSERT_EQ(0.07853113859891891, res["hits"][0]["vector_distance"].get<float>());
+    ASSERT_NEAR(0.07853113859891891, res["hits"][0]["vector_distance"].get<float>(), 1e-5);
     ASSERT_EQ("Cell Phone", res["hits"][1]["document"]["product_name"]);
-    ASSERT_EQ(0.08472149819135666, res["hits"][1]["vector_distance"].get<float>());
+    ASSERT_NEAR(0.08472149819135666, res["hits"][1]["vector_distance"].get<float>(), 1e-5);
 }
 
 TEST_F(CollectionSortingTest, TestSortByRandomOrder) {

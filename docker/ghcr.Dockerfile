@@ -16,10 +16,16 @@ RUN apt-get update \
         gcc-10 \
         git \
         lld \
+        locales \
         m4 \
         make \
         zlib1g-dev \
+    && locale-gen en_US.UTF-8 \
     && rm -rf /var/lib/apt/lists/*
+
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
 
 RUN curl --fail --location --silent --show-error \
         "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-${TARGETARCH}" \

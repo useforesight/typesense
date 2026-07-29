@@ -692,7 +692,7 @@ CURL *HttpClient::init_curl(const std::string& url, std::string& response, const
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
-    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
 
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Typesense/1.0");
 

@@ -84,7 +84,7 @@ jobs:
           bazel build @com_google_protobuf//:protoc
 
       - name: Build Typesense server
-        run: bazel build --linkopt=-no-pie //:typesense-server
+        run: bazel build //:typesense-server
 
       - name: Prepare image context
         run: |

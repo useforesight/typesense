@@ -33,7 +33,6 @@ jobs:
           - arch: arm64
             platform: linux/arm64
             runner: blacksmith-8vcpu-ubuntu-2204-arm
-            bazelisk_sha256: e20e8b0f4f240091b7a55bf17b9398bd4f40ee70ae0208dff95dd4c445fb4010
 
     runs-on: ${{ matrix.runner }}
 
@@ -42,6 +41,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install build dependencies
+        if: matrix.arch == 'amd64'
         run: |
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
@@ -57,6 +57,7 @@ jobs:
           sudo update-alternatives --set c++ /usr/bin/g++
 
       - name: Install Bazelisk
+        if: matrix.arch == 'amd64'
         env:
           BAZELISK_ARCH: ${{ matrix.arch }}
           BAZELISK_SHA256: ${{ matrix.bazelisk_sha256 }}
@@ -69,6 +70,7 @@ jobs:
           sudo install -m 0755 bazelisk /usr/local/bin/bazel
 
       - name: Set up Bazel
+        if: matrix.arch == 'amd64'
         uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
@@ -76,13 +78,57 @@ jobs:
           repository-cache: true
           external-cache: true
 
+      - name: Build protobuf deps
+        if: matrix.arch == 'amd64'
+        run: |
+          bazel build @com_google_protobuf//:protobuf_headers
+          bazel build @com_google_protobuf//:protobuf_lite
+          bazel build @com_google_protobuf//:protobuf
+          bazel build @com_google_protobuf//:protoc
+
       - name: Build Typesense server
-        run: bazel build --copt=-O2 //:typesense-server
+        if: matrix.arch == 'amd64'
+        run: bazel build //:typesense-server
+
+      - name: Install ARM64 CMake
+        if: matrix.arch == 'arm64'
+        run: |
+          archive="${RUNNER_TEMP}/cmake-arm64.tar.gz"
+          install_dir="${RUNNER_TEMP}/cmake-arm64"
+          curl --fail --location --silent --show-error \
+            https://github.com/Kitware/CMake/releases/download/v3.24.4/cmake-3.24.4-linux-aarch64.tar.gz \
+            --output "${archive}"
+          echo "86f823f2636bf715af89da10e04daa476755a799d451baee66247846e95d7bee  ${archive}" |
+            sha256sum --check
+          mkdir "${install_dir}"
+          tar --extract --gzip --file "${archive}" \
+            --directory "${install_dir}" --strip-components=1
+          echo "ARM_CMAKE_DIR=${install_dir}" >> "${GITHUB_ENV}"
+
+      - name: Build Typesense server for ARM64
+        if: matrix.arch == 'arm64'
+        run: |
+          image="typesense/typesense-development-arm:27-JUN-2022-1@sha256:0b23f09746a8a49d9660ff8603823ac3fee671ea325b502f6de75a9a3d947467"
+          docker run --rm --platform linux/arm64 \
+            --volume "${PWD}:/typesense" \
+            --volume "${ARM_CMAKE_DIR}:/opt/cmake:ro" \
+            "${image}" \
+            /opt/cmake/bin/cmake -DTYPESENSE_VERSION=nightly -DCMAKE_BUILD_TYPE=Release \
+            -H/typesense -B/typesense/build-Linux
+          docker run --rm --platform linux/arm64 \
+            --volume "${PWD}:/typesense" \
+            --volume "${ARM_CMAKE_DIR}:/opt/cmake:ro" \
+            "${image}" \
+            make -j8 typesense-server -C/typesense/build-Linux
 
       - name: Prepare image context
         run: |
           mkdir image
-          cp bazel-bin/typesense-server image/typesense-server
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            cp build-Linux/typesense-server image/typesense-server
+          else
+            cp bazel-bin/typesense-server image/typesense-server
+          fi
           cp docker/deployment.Dockerfile image/Dockerfile
 
       - name: Log in to GHCR

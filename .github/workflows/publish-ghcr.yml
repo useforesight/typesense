@@ -116,6 +116,7 @@ jobs:
             -H/typesense -B/typesense/build-Linux
           docker run --rm --platform linux/arm64 \
             -v "${PWD}:/typesense" \
+            -v "${ARM_CMAKE_DIR}:/opt/cmake:ro" \
             typesense/typesense-development-arm:27-JUN-2022-1@sha256:0b23f09746a8a49d9660ff8603823ac3fee671ea325b502f6de75a9a3d947467 \
             make -j8 typesense-server -C/typesense/build-Linux
 

@@ -27,7 +27,6 @@ RUN apt-get update \
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
-ENV CXXFLAGS=-Wno-error=unused-parameter
 
 RUN curl --fail --location --silent --show-error \
         "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-${TARGETARCH}" \

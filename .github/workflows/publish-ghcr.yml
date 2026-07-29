@@ -113,13 +113,12 @@ jobs:
             --volume "${PWD}:/typesense" \
             --volume "${ARM_CMAKE_DIR}:/opt/cmake:ro" \
             "${image}" \
-            /opt/cmake/bin/cmake -DTYPESENSE_VERSION=nightly -DCMAKE_BUILD_TYPE=Release \
-            -H/typesense -B/typesense/build-Linux
+            bash -lc 'ln -sf /usr/bin/python3.7 /usr/bin/python && exec /opt/cmake/bin/cmake -DTYPESENSE_VERSION=nightly -DCMAKE_BUILD_TYPE=Release -H/typesense -B/typesense/build-Linux'
           docker run --rm --platform linux/arm64 \
             --volume "${PWD}:/typesense" \
             --volume "${ARM_CMAKE_DIR}:/opt/cmake:ro" \
             "${image}" \
-            make -j8 typesense-server -C/typesense/build-Linux
+            bash -lc 'ln -sf /usr/bin/python3.7 /usr/bin/python && exec make -j8 typesense-server -C/typesense/build-Linux'
 
       - name: Prepare image context
         run: |

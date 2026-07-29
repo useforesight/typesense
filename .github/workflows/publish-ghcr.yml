@@ -29,9 +29,11 @@ jobs:
           - arch: amd64
             platform: linux/amd64
             runner: blacksmith-8vcpu-ubuntu-2204
+            bazelisk_sha256: 5a408715e932c0250d28bd84555f12edbf70117de42f9181691c736eacc4a992
           - arch: arm64
             platform: linux/arm64
             runner: blacksmith-8vcpu-ubuntu-2204-arm
+            bazelisk_sha256: e20e8b0f4f240091b7a55bf17b9398bd4f40ee70ae0208dff95dd4c445fb4010
 
     runs-on: ${{ matrix.runner }}
 
@@ -53,6 +55,18 @@ jobs:
 
           sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
           sudo update-alternatives --set c++ /usr/bin/g++
+
+      - name: Install Bazelisk
+        env:
+          BAZELISK_ARCH: ${{ matrix.arch }}
+          BAZELISK_SHA256: ${{ matrix.bazelisk_sha256 }}
+          BAZELISK_VERSION: v1.29.0
+        run: |
+          curl -fsSL \
+            "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-${BAZELISK_ARCH}" \
+            -o bazelisk
+          echo "${BAZELISK_SHA256}  bazelisk" | sha256sum --check
+          sudo install -m 0755 bazelisk /usr/local/bin/bazel
 
       - name: Set up Bazel
         uses: bazel-contrib/setup-bazel@0.14.0

@@ -12,8 +12,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        g++-10 \
-        gcc-10 \
+        g++ \
+        gcc \
         git \
         lld \
         locales \
@@ -32,13 +32,7 @@ RUN curl --fail --location --silent --show-error \
         "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-${TARGETARCH}" \
         --output /usr/local/bin/bazel \
     && echo "${BAZELISK_SHA256}  /usr/local/bin/bazel" | sha256sum --check \
-    && chmod 0755 /usr/local/bin/bazel \
-    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30 \
-    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 30 \
-    && update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30 \
-    && update-alternatives --set cc /usr/bin/gcc \
-    && update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30 \
-    && update-alternatives --set c++ /usr/bin/g++
+    && chmod 0755 /usr/local/bin/bazel
 
 WORKDIR /src
 COPY . .

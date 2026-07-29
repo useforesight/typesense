@@ -12,8 +12,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        g++ \
-        gcc \
+        g++-10 \
+        gcc-10 \
         git \
         lld \
         locales \
@@ -27,12 +27,19 @@ RUN apt-get update \
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
+ENV CXXFLAGS=-Wno-error=unused-parameter
 
 RUN curl --fail --location --silent --show-error \
         "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-${TARGETARCH}" \
         --output /usr/local/bin/bazel \
     && echo "${BAZELISK_SHA256}  /usr/local/bin/bazel" | sha256sum --check \
-    && chmod 0755 /usr/local/bin/bazel
+    && chmod 0755 /usr/local/bin/bazel \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 30 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 30 \
+    && update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30 \
+    && update-alternatives --set cc /usr/bin/gcc \
+    && update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30 \
+    && update-alternatives --set c++ /usr/bin/g++
 
 WORKDIR /src
 COPY . .

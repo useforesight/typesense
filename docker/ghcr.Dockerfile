@@ -19,6 +19,7 @@ RUN apt-get update \
         locales \
         m4 \
         make \
+        python3 \
         zlib1g-dev \
     && locale-gen en_US.UTF-8 \
     && rm -rf /var/lib/apt/lists/*

@@ -33,7 +33,6 @@ jobs:
           - arch: arm64
             platform: linux/arm64
             runner: blacksmith-8vcpu-ubuntu-2204-arm
-            bazelisk_sha256: e20e8b0f4f240091b7a55bf17b9398bd4f40ee70ae0208dff95dd4c445fb4010
 
     runs-on: ${{ matrix.runner }}
 
@@ -42,6 +41,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install build dependencies
+        if: matrix.arch == 'amd64'
         run: |
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
@@ -57,6 +57,7 @@ jobs:
           sudo update-alternatives --set c++ /usr/bin/g++
 
       - name: Install Bazelisk
+        if: matrix.arch == 'amd64'
         env:
           BAZELISK_ARCH: ${{ matrix.arch }}
           BAZELISK_SHA256: ${{ matrix.bazelisk_sha256 }}
@@ -69,6 +70,7 @@ jobs:
           sudo install -m 0755 bazelisk /usr/local/bin/bazel
 
       - name: Set up Bazel
+        if: matrix.arch == 'amd64'
         uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
@@ -77,6 +79,7 @@ jobs:
           external-cache: true
 
       - name: Build protobuf deps
+        if: matrix.arch == 'amd64'
         run: |
           bazel build @com_google_protobuf//:protobuf_headers
           bazel build @com_google_protobuf//:protobuf_lite
@@ -84,12 +87,30 @@ jobs:
           bazel build @com_google_protobuf//:protoc
 
       - name: Build Typesense server
+        if: matrix.arch == 'amd64'
         run: bazel build //:typesense-server
+
+      - name: Build Typesense server for ARM64
+        if: matrix.arch == 'arm64'
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "${PWD}:/typesense" \
+            typesense/typesense-development-arm:27-JUN-2022-1@sha256:0b23f09746a8a49d9660ff8603823ac3fee671ea325b502f6de75a9a3d947467 \
+            cmake -DTYPESENSE_VERSION=nightly -DCMAKE_BUILD_TYPE=Release \
+            -H/typesense -B/typesense/build-Linux
+          docker run --rm --platform linux/arm64 \
+            -v "${PWD}:/typesense" \
+            typesense/typesense-development-arm:27-JUN-2022-1@sha256:0b23f09746a8a49d9660ff8603823ac3fee671ea325b502f6de75a9a3d947467 \
+            make -j8 typesense-server -C/typesense/build-Linux
 
       - name: Prepare image context
         run: |
           mkdir image
-          cp bazel-bin/typesense-server image/typesense-server
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            cp build-Linux/typesense-server image/typesense-server
+          else
+            cp bazel-bin/typesense-server image/typesense-server
+          fi
           cp docker/deployment.Dockerfile image/Dockerfile
 
       - name: Log in to GHCR
@@ -116,6 +137,29 @@ jobs:
             org.opencontainers.image.description=Typesense with index snapshot cache support
             org.opencontainers.image.licenses=GPL-3.0
           tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}-${{ matrix.arch }}
+
+      - name: Smoke test ARM64 built-in embeddings
+        if: matrix.arch == 'arm64'
+        shell: bash
+        run: |
+          image="${IMAGE_NAME}:${GITHUB_SHA}-${{ matrix.arch }}"
+          docker pull "${image}"
+          docker run --detach --name typesense-arm64-smoke \
+            --publish 127.0.0.1:8108:8108 \
+            --mount type=volume,destination=/data \
+            "${image}" \
+            --data-dir=/data \
+            --api-key=smoke-key
+          trap 'docker rm --force --volumes typesense-arm64-smoke' EXIT
+
+          until curl --fail --silent http://127.0.0.1:8108/health; do
+            sleep 1
+          done
+          curl --fail-with-body --max-time 180 \
+            --request POST http://127.0.0.1:8108/collections \
+            --header 'Content-Type: application/json' \
+            --header 'X-TYPESENSE-API-KEY: smoke-key' \
+            --data '{"name":"embedding_smoke","fields":[{"name":"text","type":"string"},{"name":"embedding","type":"float[]","embed":{"from":["text"],"model_config":{"model_name":"ts/e5-small"}}}]}'
 
   publish:
     needs: build

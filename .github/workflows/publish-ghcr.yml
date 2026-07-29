@@ -117,19 +117,18 @@ jobs:
             org.opencontainers.image.licenses=GPL-3.0
           tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}-${{ matrix.arch }}
 
-      - name: Smoke test ARM64 built-in embeddings
-        if: matrix.arch == 'arm64'
+      - name: Smoke test built-in embeddings
         shell: bash
         run: |
           image="${IMAGE_NAME}:${GITHUB_SHA}-${{ matrix.arch }}"
           docker pull "${image}"
-          docker run --detach --name typesense-arm64-smoke \
+          docker run --detach --name typesense-embedding-smoke \
             --publish 127.0.0.1:8108:8108 \
             --mount type=volume,destination=/data \
             "${image}" \
             --data-dir=/data \
             --api-key=smoke-key
-          trap 'docker rm --force --volumes typesense-arm64-smoke' EXIT
+          trap 'docker rm --force --volumes typesense-embedding-smoke' EXIT
 
           until curl --fail --silent http://127.0.0.1:8108/health; do
             sleep 1

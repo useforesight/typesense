@@ -90,13 +90,29 @@ jobs:
         if: matrix.arch == 'amd64'
         run: bazel build //:typesense-server
 
+      - name: Install ARM64 CMake
+        if: matrix.arch == 'arm64'
+        run: |
+          archive="${RUNNER_TEMP}/cmake-arm64.tar.gz"
+          install_dir="${RUNNER_TEMP}/cmake-arm64"
+          curl --fail --location --silent --show-error \
+            https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-aarch64.tar.gz \
+            --output "${archive}"
+          echo "b4cc788d63112b2749b40627e719eb5d3b8ed8f00c36d77189f4019cfe64bc9e  ${archive}" |
+            sha256sum --check
+          mkdir "${install_dir}"
+          tar --extract --gzip --file "${archive}" \
+            --directory "${install_dir}" --strip-components=1
+          echo "ARM_CMAKE_DIR=${install_dir}" >> "${GITHUB_ENV}"
+
       - name: Build Typesense server for ARM64
         if: matrix.arch == 'arm64'
         run: |
           docker run --rm --platform linux/arm64 \
             -v "${PWD}:/typesense" \
+            -v "${ARM_CMAKE_DIR}:/opt/cmake:ro" \
             typesense/typesense-development-arm:27-JUN-2022-1@sha256:0b23f09746a8a49d9660ff8603823ac3fee671ea325b502f6de75a9a3d947467 \
-            cmake -DTYPESENSE_VERSION=nightly -DCMAKE_BUILD_TYPE=Release \
+            /opt/cmake/bin/cmake -DTYPESENSE_VERSION=nightly -DCMAKE_BUILD_TYPE=Release \
             -H/typesense -B/typesense/build-Linux
           docker run --rm --platform linux/arm64 \
             -v "${PWD}:/typesense" \

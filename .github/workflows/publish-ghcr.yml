@@ -21,8 +21,19 @@ env:
   IMAGE_NAME: ghcr.io/useforesight/typesense
 
 jobs:
-  publish:
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: blacksmith-8vcpu-ubuntu-2204
+          - arch: arm64
+            platform: linux/arm64
+            runner: blacksmith-8vcpu-ubuntu-2204-arm
+
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout code
@@ -74,28 +85,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set image tags
-        id: tags
-        shell: bash
-        run: |
-          tags="${IMAGE_NAME}:${GITHUB_SHA}"
-
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            tags="${tags}"$'\n'"${IMAGE_NAME}:${GITHUB_REF_NAME}"
-          fi
-
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${{ inputs.image_tag }}" ]]; then
-            tags="${tags}"$'\n'"${IMAGE_NAME}:${{ inputs.image_tag }}"
-          elif [[ "${GITHUB_REF_NAME}" == "v31" ]]; then
-            tags="${tags}"$'\n'"${IMAGE_NAME}:v31-index-snapshot"
-          fi
-
-          {
-            echo "tags<<EOF"
-            echo "${tags}"
-            echo "EOF"
-          } >> "${GITHUB_OUTPUT}"
-
       - name: Set up Docker builder
         uses: useblacksmith/setup-docker-builder@v1
         with:
@@ -106,10 +95,70 @@ jobs:
         with:
           context: image
           file: image/Dockerfile
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           push: true
           labels: |
             org.opencontainers.image.source=https://github.com/useforesight/typesense
             org.opencontainers.image.description=Typesense with index snapshot cache support
             org.opencontainers.image.licenses=GPL-3.0
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}-${{ matrix.arch }}
+
+  publish:
+    needs: build
+    runs-on: blacksmith-2vcpu-ubuntu-2204
+
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image tags
+        id: tags
+        shell: bash
+        env:
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          tags="${IMAGE_NAME}:${GITHUB_SHA}"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tags="${tags}"$'\n'"${IMAGE_NAME}:${GITHUB_REF_NAME}"
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${INPUT_IMAGE_TAG}" ]]; then
+            tags="${tags}"$'\n'"${IMAGE_NAME}:${INPUT_IMAGE_TAG}"
+          elif [[ "${GITHUB_REF_NAME}" == "v31" ]]; then
+            tags="${tags}"$'\n'"${IMAGE_NAME}:v31-index-snapshot"
+          fi
+
+          {
+            echo "tags<<EOF"
+            echo "${tags}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Publish multi-architecture manifests
+        shell: bash
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          while IFS= read -r tag; do
+            docker buildx imagetools create \
+              --tag "${tag}" \
+              "${IMAGE_NAME}:${GITHUB_SHA}-amd64" \
+              "${IMAGE_NAME}:${GITHUB_SHA}-arm64"
+          done <<< "${TAGS}"
+
+      - name: Verify published architectures
+        shell: bash
+        run: |
+          docker buildx imagetools inspect \
+            --raw "${IMAGE_NAME}:${GITHUB_SHA}" |
+            jq -e '
+              [.manifests[].platform |
+                select(.os == "linux") |
+                .architecture] |
+              (index("amd64") != null and index("arm64") != null)
+            '

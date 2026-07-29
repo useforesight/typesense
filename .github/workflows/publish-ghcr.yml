@@ -77,7 +77,7 @@ jobs:
           external-cache: true
 
       - name: Build Typesense server
-        run: bazel build -c opt //:typesense-server
+        run: bazel build --copt=-O2 //:typesense-server
 
       - name: Prepare image context
         run: |

@@ -1,0 +1,41 @@
+name: ARM64 page size smoke
+
+on:
+  pull_request:
+    paths:
+      - docker/ghcr.Dockerfile
+      - docker/page-size-smoke.sh
+      - docker/README.md
+      - bazel/jemalloc.BUILD
+      - .github/workflows/page-size-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: blacksmith-8vcpu-ubuntu-2204-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm the compatibility test uses a 4 KiB kernel
+        run: test "$(getconf PAGESIZE)" = 4096
+
+      - uses: useblacksmith/setup-docker-builder@v1
+        with:
+          max-cache-size-mb: "10240"
+
+      - name: Build the shared ARM64 image
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: docker/ghcr.Dockerfile
+          platforms: linux/arm64
+          load: true
+          tags: typesense:page-size-smoke
+          build-args: |
+            BAZELISK_SHA256=e20e8b0f4f240091b7a55bf17b9398bd4f40ee70ae0208dff95dd4c445fb4010
+
+      - name: Verify embeddings, search and snapshot restore
+        run: bash docker/page-size-smoke.sh typesense:page-size-smoke

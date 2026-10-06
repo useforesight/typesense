@@ -2329,31 +2329,39 @@ SPP_START_NAMESPACE
 #if !defined(SPP_ALLOC_SZ) || (SPP_ALLOC_SZ == 0)
             // aggressive allocation first, then decreasing as sparsegroups fill up
             // --------------------------------------------------------------------
-            static uint8_t s_alloc_batch_sz[SPP_GROUP_SIZE] = { 0 };
-            if (!s_alloc_batch_sz[0])
+            struct allocation_table
             {
-                // 32 bit bitmap
-                // ........ .... .... .. .. .. .. .  .  .  .  .  .  .  .
-                //     8     12   16  18 20 22 24 25 26   ...          32
-                // ------------------------------------------------------
-                uint8_t group_sz          = SPP_GROUP_SIZE / 4;
-                uint8_t group_start_alloc = SPP_GROUP_SIZE / 8; //4;
-                uint8_t alloc_sz          = group_start_alloc;
-                for (int i=0; i<4; ++i)
-                {
-                    for (int j=0; j<group_sz; ++j)
-                    {
-                        if (j && j % group_start_alloc == 0)
-                            alloc_sz += group_start_alloc;
-                        s_alloc_batch_sz[i * group_sz + j] = alloc_sz;
-                    }
-                    if (group_start_alloc > 2)
-                        group_start_alloc /= 2;
-                    alloc_sz += group_start_alloc;
-                }
-            }
+                uint8_t sizes[SPP_GROUP_SIZE] = { 0 };
 
-            return n ? static_cast<uint32_t>(s_alloc_batch_sz[n-1]) : 0; // more aggressive alloc at the beginning
+                allocation_table()
+                {
+                    // 32 bit bitmap
+                    // ........ .... .... .. .. .. .. .  .  .  .  .  .  .  .
+                    //     8     12   16  18 20 22 24 25 26   ...          32
+                    // ------------------------------------------------------
+                    uint8_t group_sz          = SPP_GROUP_SIZE / 4;
+                    uint8_t group_start_alloc = SPP_GROUP_SIZE / 8; //4;
+                    uint8_t alloc_sz          = group_start_alloc;
+                    for (int i=0; i<4; ++i)
+                    {
+                        for (int j=0; j<group_sz; ++j)
+                        {
+                            if (j && j % group_start_alloc == 0)
+                                alloc_sz += group_start_alloc;
+                            sizes[i * group_sz + j] = alloc_sz;
+                        }
+                        if (group_start_alloc > 2)
+                            group_start_alloc /= 2;
+                        alloc_sz += group_start_alloc;
+                    }
+                }
+            };
+
+            // Parallel collection loaders must see the complete table. C++11
+            // local static initialization publishes it after construction.
+            static const allocation_table table;
+
+            return n ? static_cast<uint32_t>(table.sizes[n-1]) : 0; // more aggressive alloc at the beginning
 
 #elif (SPP_ALLOC_SZ == 1)
             // use as little memory as possible - slowest insert/delete in table

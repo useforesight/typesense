@@ -1,0 +1,20 @@
+name: Sparsepp concurrent initialization
+
+on:
+  pull_request:
+    paths:
+      - include/sparsepp.h
+      - test/sanitizers/**
+      - .github/workflows/sparsepp-startup.yml
+
+permissions:
+  contents: read
+
+jobs:
+  thread-sanitizer:
+    runs-on: blacksmith-8vcpu-ubuntu-2204-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check concurrent first use with ThreadSanitizer
+        run: bash test/sanitizers/sparsepp-startup.sh

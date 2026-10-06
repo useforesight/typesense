@@ -26,3 +26,24 @@ and jq, plus network access for the embedding model's first download.
 The ARM64 page size workflow runs this check on a 4 KiB Linux kernel for pull
 requests. Run the same check on a 16 KiB host before updating downstream image
 pins. A 4 KiB Linux VM on macOS can use the same ARM64 image.
+
+## Concurrent collection startup
+
+Parallel collection loaders use separate Sparsepp maps. Those maps share an
+allocation-size table for each template specialization. The bundled header
+previously wrote that table without synchronization. Another thread could read
+an unfinished table and allocate too little storage.
+
+The table now uses C++11 thread-safe local static initialization. Its sizes and
+the snapshot format are unchanged. The fix applies to both CPU architectures.
+
+Run the focused regression check with a compiler that supports ThreadSanitizer:
+
+```bash
+bash test/sanitizers/sparsepp-startup.sh
+```
+
+The check starts independent maps concurrently in 100 fresh processes. It fails
+on a sanitizer race report or an incorrect field lookup. The original header
+produced a race report with this check on the 16 KiB ARM64 host. The fixed header
+passed all 100 processes. The separate sanitizer workflow runs it on ARM64 CI.

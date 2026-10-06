@@ -43,11 +43,8 @@ RUN curl --fail --location --silent --show-error \
 WORKDIR /src
 COPY . .
 
-# Use the existing Linux ARM64 allocator configuration for 4, 16 and 64 KiB
-# system pages. Its allocator page size is 64 KiB; the host kernel is unchanged.
 RUN --mount=type=cache,target=/root/.cache/bazel \
-    bazel build --define=enable_jemalloc_lg_page16=1 \
-        @com_google_protobuf//:protobuf_headers \
+    bazel build --define=enable_jemalloc_lg_page16=1 @com_google_protobuf//:protobuf_headers \
         @com_google_protobuf//:protobuf_lite \
         @com_google_protobuf//:protobuf \
         @com_google_protobuf//:protoc \

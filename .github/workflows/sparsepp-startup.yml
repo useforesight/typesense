@@ -17,4 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check concurrent first use with ThreadSanitizer
-        run: bash test/sanitizers/sparsepp-startup.sh
+        run: |
+          g++ -std=c++17 -g -O1 -fsanitize=thread -pthread -I include \
+            test/sanitizers/sparsepp_startup.cpp -o "$RUNNER_TEMP/sparsepp-startup"
+          for attempt in {1..100}; do
+            TSAN_OPTIONS=halt_on_error=1 "$RUNNER_TEMP/sparsepp-startup"
+          done

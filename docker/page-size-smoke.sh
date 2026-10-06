@@ -53,6 +53,10 @@ request --request POST "$url/collections/page_smoke/documents" \
   --data '{"id":"1","text":"chemical regulations"}' >/dev/null
 assert_search
 
+# Fixture construction checkpoints Raft before saving the index snapshots.
+request --request POST "$url/operations/snapshot" |
+  jq -e '.success == true' >/dev/null
+
 # SIGINT is the fork's contract for saving index snapshots.
 docker stop --time 60 "$name" >/dev/null
 test "$(docker inspect --format '{{.State.ExitCode}}' "$name")" = 0
@@ -63,5 +67,7 @@ docker start "$name" >/dev/null
 url="http://$(docker port "$name" 8108/tcp)"
 wait_for_health
 assert_search
+docker stop --time 60 "$name" >/dev/null
+test "$(docker inspect --format '{{.State.ExitCode}}' "$name")" = 0
 docker logs "$name" 2>&1 | grep -F 'Loaded collection page_smoke from index snapshot' >/dev/null
 echo "Typesense embeddings, search and snapshot restore passed on $(getconf PAGESIZE)-byte pages."

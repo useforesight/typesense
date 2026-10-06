@@ -44,11 +44,11 @@ WORKDIR /src
 COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/bazel \
-    bazel build @com_google_protobuf//:protobuf_headers \
+    bazel build --define=enable_jemalloc_lg_page16=1 @com_google_protobuf//:protobuf_headers \
         @com_google_protobuf//:protobuf_lite \
         @com_google_protobuf//:protobuf \
         @com_google_protobuf//:protoc \
-    && bazel build //:typesense-server \
+    && bazel build --define=enable_jemalloc_lg_page16=1 //:typesense-server \
     && cp bazel-bin/typesense-server /tmp/typesense-server
 
 FROM ubuntu:22.04

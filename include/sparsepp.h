@@ -2329,9 +2329,10 @@ SPP_START_NAMESPACE
 #if !defined(SPP_ALLOC_SZ) || (SPP_ALLOC_SZ == 0)
             // aggressive allocation first, then decreasing as sparsegroups fill up
             // --------------------------------------------------------------------
-            static uint8_t s_alloc_batch_sz[SPP_GROUP_SIZE] = { 0 };
-            if (!s_alloc_batch_sz[0])
-            {
+            // Initialize the complete table before parallel maps can read it.
+            static constexpr auto s_alloc_batch_sz = [] {
+                struct table { uint8_t sizes[SPP_GROUP_SIZE]; };
+                table result{};
                 // 32 bit bitmap
                 // ........ .... .... .. .. .. .. .  .  .  .  .  .  .  .
                 //     8     12   16  18 20 22 24 25 26   ...          32
@@ -2345,15 +2346,16 @@ SPP_START_NAMESPACE
                     {
                         if (j && j % group_start_alloc == 0)
                             alloc_sz += group_start_alloc;
-                        s_alloc_batch_sz[i * group_sz + j] = alloc_sz;
+                        result.sizes[i * group_sz + j] = alloc_sz;
                     }
                     if (group_start_alloc > 2)
                         group_start_alloc /= 2;
                     alloc_sz += group_start_alloc;
                 }
-            }
+                return result;
+            }();
 
-            return n ? static_cast<uint32_t>(s_alloc_batch_sz[n-1]) : 0; // more aggressive alloc at the beginning
+            return n ? static_cast<uint32_t>(s_alloc_batch_sz.sizes[n-1]) : 0; // more aggressive alloc at the beginning
 
 #elif (SPP_ALLOC_SZ == 1)
             // use as little memory as possible - slowest insert/delete in table
